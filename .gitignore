@@ -1,7 +1,7 @@
 .ipynb_checkpoints/
 __pycache__/
-checkpoints/
-data/
-experiments/
-results/
+/checkpoints/
+/data/
+/experiments/
+/results/
 uv.lock

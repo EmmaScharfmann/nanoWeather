@@ -54,6 +54,24 @@ def select_variables(dataset: xr.Dataset, variables: dict[str, dict]) -> xr.Data
     return to_standard_layout(xr.Dataset(selected))
 
 
+def expand_variables(config: dict) -> dict[str, dict]:
+    """
+    Variables of a data config as `{name: {"source": ..., "level": ...}}`.
+
+    Combines `pressure_level_variables` at each of `pressure_levels` (named `<short name><level>`, e.g. `u500`) with
+    the explicit `variables`. Both are optional.
+    """
+    variables = {}
+    for short_name, source_name in config.get("pressure_level_variables", {}).items():
+        for level in config["pressure_levels"]:
+            variables[f"{short_name}{level}"] = {"source": source_name, "level": level}
+    for name, spec in config.get("variables", {}).items():
+        if name in variables:
+            raise ValueError(f"Variable `{name}` is defined twice.")
+        variables[name] = spec
+    return variables
+
+
 def clear_encoding(dataset: xr.Dataset) -> xr.Dataset:
     """Removes the chunking and compression settings inherited from the source store."""
     for name in dataset.variables:
@@ -105,12 +123,13 @@ def prepare_dataset(config: dict, output_dir: str | os.PathLike) -> tuple[NanoWe
     os.makedirs(output_dir, exist_ok=True)
     store_path = os.path.join(output_dir, config["store_name"])
     source = open_zarr_store(config["source"]["era5_url"])
+    variables = expand_variables(config)
 
     num_steps, statistics = {}, None
     for split, (start, end) in config["splits"].items():
         start_time = time.time()
         logger.info(f"Preparing {split} ({start} to {end})")
-        dataset = select_variables(source.sel(time=slice(start, end)), config["variables"]).load()
+        dataset = select_variables(source.sel(time=slice(start, end)), variables).load()
         for name in dataset.data_vars:
             if not np.isfinite(dataset[name].values).all():
                 raise ValueError(f"Found non-finite values in `{name}` for split `{split}`.")
@@ -125,13 +144,13 @@ def prepare_dataset(config: dict, output_dir: str | os.PathLike) -> tuple[NanoWe
     static = to_standard_layout(static).load()
     clear_encoding(static).to_zarr(store_path, group="static", mode="w", zarr_format=2)
 
-    climatology = select_variables(open_zarr_store(config["source"]["climatology_url"]), config["variables"])
+    climatology = select_variables(open_zarr_store(config["source"]["climatology_url"]), variables)
     climatology = climatology.transpose("dayofyear", "hour", "latitude", "longitude").load()
     clear_encoding(climatology).to_zarr(store_path, group="climatology", mode="w", zarr_format=2)
     logger.info("Wrote static fields and climatology")
 
     feature_extractor = NanoWeatherFeatureExtractor(
-        variables=list(config["variables"]),
+        variables=list(variables),
         static_variables=list(static_names),
         static_mean=[float(static[name].mean()) for name in static_names],
         static_std=[float(static[name].std()) for name in static_names],
@@ -149,11 +168,12 @@ def write_dataset_card(
     num_steps: dict[str, int],
 ):
     """Fills the dataset card template (see `configs/dataset_card.yaml`) and writes it to `README.md`."""
+    variables = expand_variables(data_config)
     variable_rows = [
         card_config["variable_row"].format(
             name=name,
-            source=data_config["variables"][name]["source"],
-            level=data_config["variables"][name].get("level", "surface"),
+            source=variables[name]["source"],
+            level=variables[name].get("level", "surface"),
             units=units,
             mean=mean,
             std=std,

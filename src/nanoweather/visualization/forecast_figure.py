@@ -9,15 +9,23 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 from ..evaluation.forecasters import ModelForecaster
 
 
-def get_forecast_and_truth(data, checkpoint: str, init_time: str, num_steps: int) -> tuple[np.ndarray, np.ndarray]:
-    """Forecast from `init_time` and the matching truth, each `(num_steps, num_variables, latitude, longitude)`."""
+def get_forecast_and_truth(data, checkpoint: str, init_time: str, num_steps: int):
+    """
+    Forecast from `init_time` and the matching truth.
+
+    Returns:
+        `forecast` and `truth`, each `(num_steps, num_variables, latitude, longitude)`, and the names of their
+        variables (those of the model).
+    """
     init_index = np.flatnonzero(data.times == np.datetime64(pd.Timestamp(init_time)))
     if len(init_index) == 0 or init_index[0] + num_steps >= len(data.times):
         raise ValueError(f"{init_time} with {num_steps} steps is not covered by the split.")
     init_index = init_index[0]
-    forecast = ModelForecaster(checkpoint, data.static)(data, np.array([init_index]), num_steps)[0]
-    truth = data.states[init_index + 1 : init_index + 1 + num_steps]
-    return forecast, truth
+    forecaster = ModelForecaster(checkpoint, data.static)
+    forecast = forecaster(data, np.array([init_index]), num_steps)[0]
+    channels = [data.variables.index(name) for name in forecaster.variables]
+    truth = data.states[init_index + 1 : init_index + 1 + num_steps][:, channels]
+    return forecast, truth, forecaster.variables
 
 
 def load_land_sea_mask(store_path: str) -> np.ndarray:
@@ -34,11 +42,13 @@ class ForecastFigure:
 
     Args:
         data (`WeatherData`):
-            Split the forecast comes from, for coordinates, variable order and time step.
+            Split the forecast comes from, for coordinates and time step.
         forecast (`np.ndarray` of shape `(num_steps, num_variables, latitude, longitude)`):
             Forecast in physical units.
         truth (`np.ndarray` of shape `(num_steps, num_variables, latitude, longitude)`):
             Truth in physical units.
+        array_variables (`list[str]`):
+            Names of the variables of `forecast` and `truth`, in channel order.
         variables (`list[str]`):
             Variables to show, one per row.
         land_sea_mask (`np.ndarray` of shape `(latitude, longitude)`):
@@ -49,13 +59,23 @@ class ForecastFigure:
             Per variable: `scale`, `offset`, `units` and `cmap`. Shown values are `value * scale + offset`.
     """
 
-    def __init__(self, data, forecast, truth, variables, land_sea_mask, init_time: str, display: dict[str, dict]):
+    def __init__(
+        self,
+        data,
+        forecast,
+        truth,
+        array_variables,
+        variables,
+        land_sea_mask,
+        init_time: str,
+        display: dict[str, dict],
+    ):
         self.data, self.variables, self.land_sea_mask, self.display = data, variables, land_sea_mask, display
         self.init_time = pd.Timestamp(init_time)
         self.num_steps = forecast.shape[0]
         self.fields = {}
         for name in variables:
-            index = data.variables.index(name)
+            index = array_variables.index(name)
             scale, offset = display[name]["scale"], display[name]["offset"]
             self.fields[name] = (truth[:, index] * scale + offset, forecast[:, index] * scale + offset)
 

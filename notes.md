@@ -66,6 +66,31 @@ Different test years (2017-2018), so only indicative.
   year. Sunlight rather than UTC hour because local time depends on longitude; close to GraphCast's use of
   top-of-atmosphere solar radiation.
 
+## Round 1 results (training length, model size, time features)
+
+- Smaller models (hidden 128, 3 layers) are clearly worse at all lead times.
+- 50 / 100 epochs, 12 layers and hidden 384 cluster a few percent below v0 (z500 day 5: ~680 vs ~705). To check
+  against seed-to-seed variation.
+- Time features (sunlight, time of year): no gain, including for t2m.
+- Error growth rate is the same for all variants: differences are set in the first day and carried along.
+- Interpretation: the limit is not capacity or training time.
+
+## Single forecast, 2020-01-15 (v0)
+
+- Largest t2m errors over northern continents in winter (Canada, Siberia), already +-10 C at day 3.
+- Error bands along the pole rows at day 5 (z500, t2m). Pole rows have near-zero weight in the loss.
+- z500 day 5: dipoles in the storm tracks, i.e. systems in the wrong place.
+- Hypothesis: the 6 input variables do not describe the atmosphere well enough (no winds aloft, no humidity, two
+  pressure levels). Consistent with the round 1 plateau.
+
+## Round 2 (in progress)
+
+- Diagnostics over all of 2020: bias maps, RMSE by latitude, zonal spectra (`scripts/diagnose.py`).
+  On fake noise data, the spectrum of a small model shows a spike at wavenumber 32 (period of 2 grid points, the
+  patch size): check whether v0 has this patch artifact.
+- 29 variables: z, t, u, v, q at 250/500/700/850/925 hPa plus t2m, u10, v10, msl. Each source chunk holds all 13
+  levels and is downloaded once whatever the number of levels selected (~11 GB in total).
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

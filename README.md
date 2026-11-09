@@ -26,6 +26,11 @@ tests/
 Every script reads its settings from a config in `configs/`. Any setting can be overridden on the command line, and
 `--config` selects another file.
 
+Two datasets are configured: `configs/data.yaml` (6 variables, v0) and `configs/data_29vars.yaml` (z, t, u, v and
+specific humidity at 5 pressure levels, plus 4 surface variables). Select one with `--data_config`. Evaluation scores
+all models on the variables they share, so 6-variable models can be compared with 29-variable models on the
+29-variable dataset.
+
 ## Usage
 
 ```bash
@@ -40,6 +45,9 @@ uv run scripts/train.py --output_dir checkpoints/epochs50 --num_train_epochs 50
 # Evaluation against persistence and climatology (configs/evaluation.yaml)
 uv run scripts/evaluate.py --checkpoint checkpoints/v0/best
 uv run scripts/evaluate.py --checkpoint checkpoints/v0/best checkpoints/epochs50/best --output_dir results/compare
+
+# Bias maps, RMSE by latitude and zonal spectra over all initializations (configs/diagnostics.yaml)
+uv run scripts/diagnose.py --checkpoint checkpoints/v0/best
 
 # Forecast maps and animation (configs/visualization.yaml)
 uv run scripts/visualize.py --checkpoint checkpoints/v0/best --init_time 2020-01-15T00

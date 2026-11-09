@@ -40,9 +40,11 @@ def main():
     data_config = load_yaml(args.data_config)
     data_path = args.data_path or data_config["output_dir"]
     data = WeatherData(data_path, split=args.split, store_name=data_config["store_name"])
-    forecast, truth = get_forecast_and_truth(data, args.checkpoint, args.init_time, args.num_steps)
+    forecast, truth, array_variables = get_forecast_and_truth(data, args.checkpoint, args.init_time, args.num_steps)
     land_sea_mask = load_land_sea_mask(data.store_path)
-    figure = ForecastFigure(data, forecast, truth, args.variables, land_sea_mask, args.init_time, args.display)
+    figure = ForecastFigure(
+        data, forecast, truth, array_variables, args.variables, land_sea_mask, args.init_time, args.display
+    )
 
     stem = os.path.join(args.output_dir, f"forecast_{pd.Timestamp(args.init_time):%Y%m%d%H}")
     figure.save_animation(f"{stem}.gif", fps=args.fps)

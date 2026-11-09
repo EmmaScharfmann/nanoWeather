@@ -7,7 +7,7 @@ import xarray as xr
 
 from nanoweather.config import load_yaml
 from nanoweather.processing.feature_extraction_nanoweather import NanoWeatherFeatureExtractor
-from nanoweather.processing.prepare import compute_statistics, select_variables, write_dataset_card
+from nanoweather.processing.prepare import compute_statistics, expand_variables, select_variables, write_dataset_card
 
 
 VARIABLES = {
@@ -66,3 +66,20 @@ def test_dataset_card(tmp_path):
     assert "| `t2m` | 2m_temperature | surface | K |" in card
     assert "| train | 2000-01-01T00 | 2015-12-31T18 | 10 |" in card
     assert "{" not in card
+
+
+def test_expand_variables():
+    config = {
+        "pressure_levels": [500, 850],
+        "pressure_level_variables": {"z": "geopotential", "u": "u_component_of_wind"},
+        "variables": {"t2m": {"source": "2m_temperature"}},
+    }
+    assert expand_variables(config) == {
+        "z500": {"source": "geopotential", "level": 500},
+        "z850": {"source": "geopotential", "level": 850},
+        "u500": {"source": "u_component_of_wind", "level": 500},
+        "u850": {"source": "u_component_of_wind", "level": 850},
+        "t2m": {"source": "2m_temperature"},
+    }
+    assert list(expand_variables(load_yaml("configs/data.yaml"))) == ["z500", "t850", "t2m", "u10", "v10", "msl"]
+    assert len(expand_variables(load_yaml("configs/data_29vars.yaml"))) == 29

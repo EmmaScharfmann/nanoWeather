@@ -34,7 +34,21 @@ def get_targets(data, init_indices: np.ndarray, num_steps: int) -> np.ndarray:
     return data.states[init_indices[:, None] + leads[None, :]]
 
 
-def evaluate_forecaster(forecaster: Callable, data, init_indices: np.ndarray, num_steps: int, batch_size: int) -> dict:
+def get_forecast_variables(forecaster: Callable, data) -> list[str]:
+    return list(getattr(forecaster, "variables", data.variables))
+
+
+def get_common_variables(forecasters: list[Callable], data) -> list[str]:
+    """Variables forecast by every forecaster, in the order of `data.variables`."""
+    common = set(data.variables)
+    for forecaster in forecasters:
+        common &= set(get_forecast_variables(forecaster, data))
+    return [name for name in data.variables if name in common]
+
+
+def evaluate_forecaster(
+    forecaster: Callable, data, init_indices: np.ndarray, num_steps: int, batch_size: int, variables: list[str]
+) -> dict:
     """
     Latitude-weighted RMSE of a forecaster, computed for each initialization and then averaged.
 
@@ -49,15 +63,20 @@ def evaluate_forecaster(forecaster: Callable, data, init_indices: np.ndarray, nu
             Number of time steps to forecast.
         batch_size (`int`):
             Number of initializations forecast at once.
+        variables (`list[str]`):
+            Variables to score. Must be forecast by `forecaster` and present in `data`.
 
     Returns:
-        `dict` with `lead_hours` of shape `(num_steps,)` and `rmse` of shape `(num_steps, num_variables)`.
+        `dict` with `lead_hours` of shape `(num_steps,)` and `rmse` of shape `(num_steps, len(variables))`.
     """
+    forecast_variables = get_forecast_variables(forecaster, data)
+    forecast_channels = [forecast_variables.index(name) for name in variables]
+    target_channels = [data.variables.index(name) for name in variables]
     rmse_per_init = []
     for start in range(0, len(init_indices), batch_size):
         batch = init_indices[start : start + batch_size]
-        forecast = forecaster(data, batch, num_steps)
-        targets = get_targets(data, batch, num_steps)
+        forecast = forecaster(data, batch, num_steps)[:, :, forecast_channels]
+        targets = get_targets(data, batch, num_steps)[:, :, target_channels]
         if forecast.shape != targets.shape:
             raise ValueError(f"Forecast shape {forecast.shape} does not match targets {targets.shape}.")
         rmse_per_init.append(latitude_weighted_rmse(forecast, targets, data.latitude_weights))

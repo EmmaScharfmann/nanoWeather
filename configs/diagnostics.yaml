@@ -1,0 +1,9 @@
+data_config: configs/data.yaml
+output_dir: results/diagnostics
+split: test
+init_start: "2020-01-01T00"
+init_end: "2020-12-31T12"
+init_frequency_hours: 12
+lead_days: [1, 3, 5]
+variables: [z500, t850, t2m]
+batch_size: 64

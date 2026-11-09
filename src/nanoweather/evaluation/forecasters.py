@@ -1,7 +1,8 @@
 """Forecasters: callables `forecaster(data, init_indices, num_steps)` returning forecasts in physical units.
 
 The returned array has shape `(num_inits, num_steps, num_variables, latitude, longitude)`, where `init_indices` index
-`data.times` and step `k` is valid at `data.times[init_index] + (k + 1) * data.time_step_hours`.
+`data.times` and step `k` is valid at `data.times[init_index] + (k + 1) * data.time_step_hours`. Variables are those of
+`forecaster.variables` if the forecaster has that attribute, otherwise those of `data.variables`.
 """
 
 import os
@@ -67,10 +68,16 @@ class ModelForecaster:
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.model = NanoWeatherForWeatherForecasting.from_pretrained(checkpoint).to(self.device)
         self.feature_extractor = NanoWeatherFeatureExtractor.from_pretrained(checkpoint, repo_type="model")
+        self.variables = self.model.config.variables
         self.static = torch.from_numpy(static).to(self.device)
 
     def __call__(self, data, init_indices: np.ndarray, num_steps: int) -> np.ndarray:
-        states = torch.from_numpy(self.feature_extractor.normalize(data.states[init_indices])).to(self.device)
+        missing = [name for name in self.variables if name not in data.variables]
+        if missing:
+            raise ValueError(f"The model needs variables missing from the data: {missing}")
+        channels = [data.variables.index(name) for name in self.variables]
+        initial_states = data.states[init_indices][:, channels]
+        states = torch.from_numpy(self.feature_extractor.normalize(initial_states)).to(self.device)
         time_features = None
         if self.model.config.num_time_features > 0:
             step = np.timedelta64(data.time_step_hours, "h")

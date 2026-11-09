@@ -1,0 +1,44 @@
+template: |
+  ---
+  tags: [weather, climate, era5, weatherbench2, nanoweather]
+  ---
+
+  # nanoWeather: ERA5 at 5.625 deg, 6-hourly
+
+  Small, ML-ready subset of ERA5 for training and evaluating small global weather models.
+  Derived from the WeatherBench 2 regridded ERA5 (64x32 equiangular grid, conservative regridding).
+
+  ## Layout
+
+  - `{store_name}`: Zarr store with groups `train`, `val`, `test`, `static` and `climatology`.
+  - `preprocessor_config.json`: normalization statistics, computed on the train split only.
+
+  Dims are `(time, latitude, longitude)`, latitude south to north, longitude 0 to 354.375.
+  `climatology` is the WeatherBench 2 ERA5 climatology (1990-2019), dims `(dayofyear, hour, latitude, longitude)`.
+
+  ```python
+  import xarray as xr
+
+  train = xr.open_zarr("hf://datasets/<repo_id>/{store_name}", group="train")
+  ```
+
+  ## Variables (statistics from the train split)
+
+  | name | source | level (hPa) | units | mean | std | 6h change std |
+  |---|---|---|---|---|---|---|
+  {variable_rows}
+
+  ## Splits
+
+  | split | start | end | time steps |
+  |---|---|---|---|
+  {split_rows}
+
+  ## Source and license
+
+  ERA5 (Hersbach et al., 2020, Copernicus Climate Change Service), as regridded by WeatherBench 2 (Rasp et al., 2024).
+  Source: {era5_url}
+  Check the Copernicus licence terms before redistributing.
+
+variable_row: "| `{name}` | {source} | {level} | {units} | {mean:.4g} | {std:.4g} | {diff_std:.4g} |"
+split_row: "| {split} | {start} | {end} | {num_steps} |"

@@ -1,19 +1,4 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch nanoWeather model: a small Vision Transformer that forecasts the global atmospheric state 6h ahead.
-
-The whole forward pass is in this file, following the "one model, one file" convention of transformers.
+"""A small Vision Transformer that forecasts the global atmospheric state one time step ahead.
 
     states (B, C, H, W) + static (S, H, W) + time features (B, F, H, W, optional)
       -> patch embeddings + position embeddings      (B, N, D)   N = (H / p) * (W / p)
@@ -34,7 +19,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from configuration_nanoweather import NanoWeatherConfig
+from .configuration_nanoweather import NanoWeatherConfig
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +30,7 @@ WEIGHTS_NAME = "model.safetensors"
 @dataclass
 class NanoWeatherModelOutput:
     """
-    Output of [`NanoWeatherModel`]. Mirrors `transformers.modeling_outputs.BaseModelOutput`.
+    Output of `NanoWeatherModel`.
 
     Args:
         last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_patches, hidden_size)`):
@@ -58,13 +43,13 @@ class NanoWeatherModelOutput:
 @dataclass
 class NanoWeatherForecastOutput:
     """
-    Output of [`NanoWeatherForWeatherForecasting`].
+    Output of `NanoWeatherForWeatherForecasting`.
 
     Args:
         loss (`torch.FloatTensor` of shape `()`, *optional*, returned when `labels` is provided):
             Latitude-weighted mean squared error between `prediction` and `labels`, in normalized units.
         prediction (`torch.FloatTensor` of shape `(batch_size, num_variables, latitude, longitude)`):
-            Predicted state 6h ahead, normalized.
+            Predicted state one time step ahead, normalized.
         last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_patches, hidden_size)`):
             Hidden states of the backbone.
     """
@@ -117,7 +102,6 @@ def sdpa_attention_forward(
     return attn_output, None
 
 
-# Same pattern as transformers' attention dispatch: layers look the backend up by `config.attn_implementation`.
 ALL_ATTENTION_FUNCTIONS: dict[str, Callable] = {
     "eager": eager_attention_forward,
     "sdpa": sdpa_attention_forward,
@@ -136,7 +120,6 @@ class NanoWeatherEmbeddings(nn.Module):
         self.position_embeddings = nn.Parameter(torch.zeros(1, config.num_patches, config.hidden_size))
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        # (batch_size, num_channels, latitude, longitude) -> (batch_size, num_patches, hidden_size), row-major patches
         embeddings = self.patch_embeddings(pixel_values).flatten(2).transpose(1, 2)
         return embeddings + self.position_embeddings
 
@@ -207,7 +190,7 @@ class NanoWeatherLayer(nn.Module):
 
 class NanoWeatherPreTrainedModel(nn.Module):
     """
-    Base class handling weight initialization, saving and loading, like `transformers.PreTrainedModel`.
+    Base class for weight initialization, saving and loading.
 
     Saved checkpoints contain `config.json` and `model.safetensors`.
     """
@@ -305,7 +288,11 @@ class NanoWeatherModel(NanoWeatherPreTrainedModel):
 
 
 class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
-    """nanoWeather backbone with a linear head that predicts the normalized state 6h ahead."""
+    """
+    Backbone with a linear head that predicts the normalized state one time step ahead.
+
+    With `config.predict_residual`, the head is initialized at zero, so the untrained model predicts no change.
+    """
 
     def __init__(self, config: NanoWeatherConfig):
         super().__init__(config)
@@ -314,7 +301,6 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
         self.register_buffer("latitude_weights", get_latitude_weights(config.grid_size[0]), persistent=False)
         self.post_init()
         if config.predict_residual:
-            # Zero head: the untrained model predicts no change, i.e. starts as the persistence forecast.
             nn.init.zeros_(self.head.weight)
             nn.init.zeros_(self.head.bias)
 
@@ -344,7 +330,7 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
             time_features (`torch.FloatTensor` of shape `(batch_size, num_time_features, latitude, longitude)`, *optional*):
                 Time features at the input time. Required when `config.num_time_features > 0`.
             labels (`torch.FloatTensor` of shape `(batch_size, num_variables, latitude, longitude)`, *optional*):
-                Normalized state at t + 6h. If given, the latitude-weighted MSE is returned as `loss`.
+                Normalized state one time step after `states`. If given, the latitude-weighted MSE is returned as `loss`.
         """
         inputs = [states]
         if self.config.num_static_channels > 0:
@@ -381,7 +367,7 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
         time_features: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
-        Forecasts `num_steps` 6h steps autoregressively, feeding each prediction back as the next input.
+        Forecasts `num_steps` time steps autoregressively, feeding each prediction back as the next input.
 
         Args:
             states (`torch.FloatTensor` of shape `(batch_size, num_variables, latitude, longitude)`):
@@ -389,7 +375,7 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
             static (`torch.FloatTensor`, *optional*):
                 Normalized static fields, as in `forward`.
             num_steps (`int`, *optional*, defaults to 1):
-                Number of 6h steps.
+                Number of time steps.
             time_features (`torch.FloatTensor` of shape `(batch_size, num_steps, num_time_features, latitude, longitude)`, *optional*):
                 Time features at the input time of each step. Required when `config.num_time_features > 0`.
 

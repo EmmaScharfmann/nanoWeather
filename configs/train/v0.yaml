@@ -1,0 +1,27 @@
+data_config: configs/data.yaml
+output_dir: checkpoints/v0
+
+# Model
+patch_size: 2
+hidden_size: 256
+num_hidden_layers: 6
+num_attention_heads: 8
+intermediate_size: 1024
+use_time_features: false
+
+# Optimization
+num_train_epochs: 20
+batch_size: 32
+eval_batch_size: 128
+learning_rate: 5.0e-4
+weight_decay: 0.05
+warmup_steps: 1000
+max_grad_norm: 1.0
+bf16: true
+compile: false
+
+# Overfit check
+overfit_steps: 1000
+
+logging_steps: 50
+seed: 42

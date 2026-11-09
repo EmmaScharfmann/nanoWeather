@@ -1,84 +1,23 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Trains a nanoWeather model to predict the state 6h ahead, with a latitude-weighted MSE loss.
+"""Training loop for one-step forecasting with a latitude-weighted MSE loss."""
 
-Two modes:
-    --overfit_one_batch   trains on a single fixed batch. The loss should keep decreasing towards zero; if it stalls
-                          well above zero, there is a bug in the model or the data. Run this first. With a residual
-                          model, the loss at step 1 is the persistence error (the head starts at zero).
-    default               trains on the train split, evaluates the loss on the val split after each epoch, and keeps
-                          the checkpoint with the lowest val loss.
-
-Checkpoints contain `config.json`, `model.safetensors` and `preprocessor_config.json` (the normalization used for
-training, needed to denormalize forecasts).
-
-Usage:
-    uv run train.py --data_path data/nanoweather_v0 --overfit_one_batch
-    uv run train.py --data_path data/nanoweather_v0 --output_dir checkpoints/v0
-"""
-
-import argparse
 import json
 import logging
 import math
 import os
 import random
 import time
+from argparse import Namespace
 
 import numpy as np
 import torch
 
-from configuration_nanoweather import NanoWeatherConfig
-from data import ForecastPairs, WeatherData
-from feature_extraction_nanoweather import NUM_TIME_FEATURES
-from modeling_nanoweather import NanoWeatherForWeatherForecasting
+from ..data.datasets import ForecastPairs, WeatherData
+from ..models.configuration_nanoweather import NanoWeatherConfig
+from ..models.modeling_nanoweather import NanoWeatherForWeatherForecasting
+from ..processing.feature_extraction_nanoweather import NUM_TIME_FEATURES
 
 
 logger = logging.getLogger(__name__)
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    # Data and outputs
-    parser.add_argument("--data_path", type=str, default="data/nanoweather_v0")
-    parser.add_argument("--output_dir", type=str, default="checkpoints/v0")
-    parser.add_argument("--push_to_hub", type=str, default=None, help="Model repository id for the best checkpoint.")
-    # Model
-    parser.add_argument("--patch_size", type=int, default=2)
-    parser.add_argument("--hidden_size", type=int, default=256)
-    parser.add_argument("--num_hidden_layers", type=int, default=6)
-    parser.add_argument("--num_attention_heads", type=int, default=8)
-    parser.add_argument("--intermediate_size", type=int, default=1024)
-    parser.add_argument(
-        "--use_time_features", action="store_true", help="Add sunlight (at t and t + 6h) and time of year as inputs."
-    )
-    # Optimization
-    parser.add_argument("--num_train_epochs", type=int, default=20)
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--learning_rate", type=float, default=5e-4)
-    parser.add_argument("--weight_decay", type=float, default=0.05)
-    parser.add_argument("--warmup_steps", type=int, default=1000)
-    parser.add_argument("--max_grad_norm", type=float, default=1.0)
-    parser.add_argument("--no_bf16", action="store_true", help="Disable bf16 autocast on GPU.")
-    parser.add_argument("--compile", action="store_true", help="Compile the model with torch.compile.")
-    # Overfit check
-    parser.add_argument("--overfit_one_batch", action="store_true")
-    parser.add_argument("--overfit_steps", type=int, default=1000)
-    # Misc
-    parser.add_argument("--logging_steps", type=int, default=50)
-    parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args()
 
 
 def set_seed(seed: int):
@@ -89,7 +28,7 @@ def set_seed(seed: int):
 
 
 def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps: int, num_training_steps: int):
-    """Linear warmup to the peak learning rate, then cosine decay to zero. Same as the transformers scheduler."""
+    """Linear warmup to the peak learning rate, then cosine decay to zero."""
 
     def lr_lambda(current_step: int) -> float:
         if current_step < num_warmup_steps:
@@ -101,7 +40,7 @@ def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps: int, num_traini
 
 
 def get_optimizer(model: torch.nn.Module, learning_rate: float, weight_decay: float) -> torch.optim.Optimizer:
-    """AdamW without weight decay on biases, layer norms and position embeddings."""
+    """AdamW, without weight decay on biases, normalization weights and position embeddings."""
     decay, no_decay = [], []
     for name, parameter in model.named_parameters():
         if parameter.ndim < 2 or "position_embeddings" in name:
@@ -145,13 +84,18 @@ def evaluate_loss(model, dataloader, static, device, use_bf16: bool) -> float:
 
 
 def save_checkpoint(model, feature_extractor, output_dir: str):
-    # Unwrap a compiled model so the saved weights have the original parameter names.
+    """Saves the model and its feature extractor, unwrapping a compiled model first."""
     getattr(model, "_orig_mod", model).save_pretrained(output_dir)
     feature_extractor.save_pretrained(output_dir)
 
 
-def overfit_one_batch(model, train_pairs, static, device, args, use_bf16: bool):
-    """Trains on one fixed batch. A working model and data pipeline drives the loss close to zero."""
+def overfit_one_batch(model, train_pairs, static, device, args: Namespace, use_bf16: bool) -> float:
+    """
+    Trains on a single fixed batch and returns the final loss as a fraction of the loss at the first step.
+
+    With a working model and data pipeline the loss keeps decreasing towards zero. With `predict_residual`, the loss at
+    the first step is the error of the persistence forecast.
+    """
     batch = next(iter(torch.utils.data.DataLoader(train_pairs, batch_size=args.batch_size, shuffle=True)))
     batch = to_device(batch, device)
     optimizer = get_optimizer(model, args.learning_rate, weight_decay=0.0)
@@ -159,28 +103,33 @@ def overfit_one_batch(model, train_pairs, static, device, args, use_bf16: bool):
     for step in range(1, args.overfit_steps + 1):
         loss = training_step(model, batch, static, optimizer, None, args.max_grad_norm, use_bf16)
         initial_loss = initial_loss if initial_loss is not None else loss
-        if step == 1 and model.config.predict_residual:
-            logger.info(f"overfit step     1 | loss {loss:.6f} (persistence error: the head starts at zero)")
-        elif step % args.logging_steps == 0:
+        if step == 1 or step % args.logging_steps == 0:
             logger.info(f"overfit step {step:5d} | loss {loss:.6f}")
     ratio = loss / initial_loss
-    logger.info(f"Final loss {loss:.6f}, {ratio:.1%} of the initial loss")
+    logger.info(f"Final loss {loss:.6f}, {ratio:.1%} of the loss at step 1")
     if ratio > 0.1:
         logger.warning(
-            "The loss did not drop below 10% of its initial value. If it was still decreasing, increase "
-            "--overfit_steps; if it had flattened out, check the model and data pipeline."
+            "The loss did not drop below 10% of its value at step 1. If it was still decreasing, increase "
+            "overfit_steps; if it had flattened out, check the model and data pipeline."
         )
+    return ratio
 
 
-def main():
-    args = parse_args()
-    logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
+def train(args: Namespace, data_config: dict):
+    """
+    Trains a model as configured in `args` (see `configs/train/v0.yaml`).
+
+    Without `args.overfit_one_batch`, trains on the train split, computes the val loss after each epoch, and writes to
+    `args.output_dir`: `best/` (lowest val loss), `last/` and `training_history.json`. Checkpoints contain the model and
+    the feature extractor used for training.
+    """
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    use_bf16 = device.type == "cuda" and not args.no_bf16
+    use_bf16 = device.type == "cuda" and args.bf16
     logger.info(f"Device {device}, bf16 {use_bf16}")
 
-    train_data = WeatherData(args.data_path, split="train")
+    store_name = data_config["store_name"]
+    train_data = WeatherData(args.data_path, split="train", store_name=store_name)
     train_pairs = ForecastPairs(train_data, lead_steps=1, time_features=args.use_time_features)
     static = torch.from_numpy(train_data.static).to(device)
 
@@ -204,13 +153,15 @@ def main():
         overfit_one_batch(model, train_pairs, static, device, args, use_bf16)
         return
 
-    val_data = WeatherData(args.data_path, split="val", feature_extractor=train_data.feature_extractor)
+    val_data = WeatherData(
+        args.data_path, split="val", store_name=store_name, feature_extractor=train_data.feature_extractor
+    )
     val_pairs = ForecastPairs(val_data, lead_steps=1, time_features=args.use_time_features)
     pin_memory = device.type == "cuda"
     train_loader = torch.utils.data.DataLoader(
         train_pairs, batch_size=args.batch_size, shuffle=True, drop_last=True, pin_memory=pin_memory
     )
-    val_loader = torch.utils.data.DataLoader(val_pairs, batch_size=4 * args.batch_size, pin_memory=pin_memory)
+    val_loader = torch.utils.data.DataLoader(val_pairs, batch_size=args.eval_batch_size, pin_memory=pin_memory)
 
     num_training_steps = args.num_train_epochs * len(train_loader)
     optimizer = get_optimizer(model, args.learning_rate, args.weight_decay)
@@ -231,8 +182,9 @@ def main():
         epoch_start = time.time()
         running_loss = 0.0
         for batch in train_loader:
-            batch = to_device(batch, device)
-            loss = training_step(model, batch, static, optimizer, scheduler, args.max_grad_norm, use_bf16)
+            loss = training_step(
+                model, to_device(batch, device), static, optimizer, scheduler, args.max_grad_norm, use_bf16
+            )
             running_loss += loss
             global_step += 1
             if global_step % args.logging_steps == 0:
@@ -271,7 +223,3 @@ def main():
             repo_id=args.push_to_hub,
         )
         logger.info(f"Pushed to https://huggingface.co/{args.push_to_hub}")
-
-
-if __name__ == "__main__":
-    main()

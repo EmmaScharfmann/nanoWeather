@@ -1,0 +1,17 @@
+data_config: configs/data.yaml
+output_dir: results
+split: test
+init_time: "2020-07-01T00"
+num_steps: 20
+variables: [z500, t2m]
+snapshot_days: [1, 3, 5]
+fps: 4
+
+# Displayed value = stored value * scale + offset
+display:
+  z500: {scale: 0.10197162, offset: 0.0, units: m, cmap: viridis}
+  t850: {scale: 1.0, offset: -273.15, units: °C, cmap: RdYlBu_r}
+  t2m: {scale: 1.0, offset: -273.15, units: °C, cmap: RdYlBu_r}
+  u10: {scale: 1.0, offset: 0.0, units: m/s, cmap: PuOr_r}
+  v10: {scale: 1.0, offset: 0.0, units: m/s, cmap: PuOr_r}
+  msl: {scale: 0.01, offset: 0.0, units: hPa, cmap: viridis}

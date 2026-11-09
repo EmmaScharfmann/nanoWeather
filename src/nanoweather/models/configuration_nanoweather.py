@@ -1,16 +1,3 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """nanoWeather model configuration."""
 
 import copy
@@ -26,8 +13,8 @@ CONFIG_NAME = "config.json"
 
 class NanoWeatherConfig:
     r"""
-    Configuration of a [`NanoWeatherForWeatherForecasting`] model: a small Vision Transformer on a global
-    latitude/longitude grid that predicts the state of the atmosphere 6h ahead.
+    Configuration of a `NanoWeatherForWeatherForecasting` model: a small Vision Transformer on a global
+    latitude/longitude grid that predicts the state of the atmosphere one time step ahead.
 
     Args:
         variables (`list[str]`, *optional*, defaults to `["z500", "t850", "t2m", "u10", "v10", "msl"]`):
@@ -58,15 +45,16 @@ class NanoWeatherConfig:
         initializer_range (`float`, *optional*, defaults to 0.02):
             Standard deviation of the truncated normal initializer.
         predict_residual (`bool`, *optional*, defaults to `True`):
-            Whether the model predicts the 6h change added to the input state, rather than the next state directly.
+            Whether the model predicts the change over one time step, added to the input state, rather than the next
+            state directly. The output head then starts at zero, so the untrained model is the persistence forecast.
         attn_implementation (`str`, *optional*, defaults to `"sdpa"`):
             Attention backend, `"sdpa"` (`torch.nn.functional.scaled_dot_product_attention`) or `"eager"`.
 
     Example:
 
     ```python
-    >>> from configuration_nanoweather import NanoWeatherConfig
-    >>> from modeling_nanoweather import NanoWeatherForWeatherForecasting
+    >>> from nanoweather.models.configuration_nanoweather import NanoWeatherConfig
+    >>> from nanoweather.models.modeling_nanoweather import NanoWeatherForWeatherForecasting
 
     >>> configuration = NanoWeatherConfig(num_hidden_layers=4)
     >>> model = NanoWeatherForWeatherForecasting(configuration)

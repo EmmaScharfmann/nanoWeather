@@ -1,23 +1,10 @@
-# Copyright 2026 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Tests for the nanoWeather model. No data download needed: `uv run pytest tests`."""
+"""Tests for the model."""
 
 import pytest
 import torch
 
-from configuration_nanoweather import NanoWeatherConfig
-from modeling_nanoweather import NanoWeatherForWeatherForecasting, get_latitude_weights
+from nanoweather.models.configuration_nanoweather import NanoWeatherConfig
+from nanoweather.models.modeling_nanoweather import NanoWeatherForWeatherForecasting, get_latitude_weights
 
 
 BATCH_SIZE = 3
@@ -55,7 +42,7 @@ def test_untrained_model_is_persistence(config, inputs):
 
 def test_all_parameters_receive_gradients(config, inputs):
     model = NanoWeatherForWeatherForecasting(config)
-    torch.nn.init.normal_(model.head.weight, std=0.02)  # the zero-initialized head blocks gradients at step 0
+    torch.nn.init.normal_(model.head.weight, std=0.02)
     model(**inputs).loss.backward()
     missing = [name for name, parameter in model.named_parameters() if parameter.grad is None]
     assert not missing, missing

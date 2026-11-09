@@ -1,0 +1,10 @@
+data_config: configs/data.yaml
+output_dir: results
+split: test
+init_start: "2020-01-01T00"
+init_end: "2020-12-31T12"
+init_frequency_hours: 12
+num_steps: 20
+batch_size: 64
+summary_lead_hours: 72
+plot_variables: [z500, t850, t2m]

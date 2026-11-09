@@ -1,0 +1,58 @@
+[project]
+name = "nanoweather"
+version = "0.0.1"
+description = "Train and evaluate small global weather forecasting models"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "xarray>=2024.10",
+    "zarr>=3.0",
+    "fsspec>=2024.10",
+    "aiohttp>=3.9",          # HTTPS reads of the public WeatherBench 2 bucket
+    "requests>=2.31",
+    "huggingface_hub>=0.26", # Hub upload and hf:// paths
+    "torch>=2.4",
+    "safetensors>=0.4",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8",
+    "jupyterlab>=4.2",
+    "ipykernel>=6.29",
+    "matplotlib>=3.8",  # plots in the notebooks
+]
+
+[tool.uv]
+package = false  # scripts at the repo root for now, no installable package yet
+
+[tool.ruff]
+# Same settings as transformers
+line-length = 119
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["C", "E", "F", "I", "W", "UP"]
+ignore = ["C901", "E501", "E741", "F402", "F823"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+known-first-party = [
+    "configuration_nanoweather",
+    "data",
+    "evaluate",
+    "feature_extraction_nanoweather",
+    "modeling_nanoweather",
+    "prepare_data",
+    "train",
+    "visualize",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

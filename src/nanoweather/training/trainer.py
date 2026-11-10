@@ -158,13 +158,16 @@ def train(args: Namespace, data_config: dict):
 
     store_name = data_config["store_name"]
     train_data = WeatherData(args.data_path, split="train", store_name=store_name)
-    train_pairs = ForecastPairs(train_data, lead_steps=1, time_features=args.use_time_features)
+    train_pairs = ForecastPairs(
+        train_data, lead_steps=1, time_features=args.use_time_features, num_input_steps=args.num_input_steps
+    )
     static = torch.from_numpy(train_data.static).to(device)
 
     loss_settings = get_loss_settings(args, data_config, train_data.feature_extractor)
     log_loss_settings(train_data.variables, loss_settings)
     config = NanoWeatherConfig(
         variables=train_data.variables,
+        num_input_steps=args.num_input_steps,
         num_static_channels=static.shape[0],
         num_time_features=NUM_TIME_FEATURES if args.use_time_features else 0,
         grid_size=train_data.states.shape[-2:],
@@ -187,7 +190,9 @@ def train(args: Namespace, data_config: dict):
     val_data = WeatherData(
         args.data_path, split="val", store_name=store_name, feature_extractor=train_data.feature_extractor
     )
-    val_pairs = ForecastPairs(val_data, lead_steps=1, time_features=args.use_time_features)
+    val_pairs = ForecastPairs(
+        val_data, lead_steps=1, time_features=args.use_time_features, num_input_steps=args.num_input_steps
+    )
     pin_memory = device.type == "cuda"
     train_loader = torch.utils.data.DataLoader(
         train_pairs, batch_size=args.batch_size, shuffle=True, drop_last=True, pin_memory=pin_memory

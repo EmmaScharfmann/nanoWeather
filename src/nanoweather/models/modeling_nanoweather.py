@@ -1,6 +1,6 @@
 """A small Vision Transformer that forecasts the global atmospheric state one time step ahead.
 
-    states (B, C, H, W) + static (S, H, W) + time features (B, F, H, W, optional)
+    previous states (B, K - 1, C, H, W, optional) + states (B, C, H, W) + static (S, H, W) + time features (B, F, H, W, optional)
       -> patch embeddings + position embeddings      (B, N, D)   N = (H / p) * (W / p)
       -> transformer layers                          (B, N, D)
       -> linear head + unpatchify                    (B, C, H, W)
@@ -135,7 +135,9 @@ class NanoWeatherEmbeddings(nn.Module):
 
     def __init__(self, config: NanoWeatherConfig):
         super().__init__()
-        num_channels = config.num_variables + config.num_static_channels + config.num_time_features
+        num_channels = (
+            config.num_variables * config.num_input_steps + config.num_static_channels + config.num_time_features
+        )
         self.patch_embeddings = nn.Conv2d(
             num_channels, config.hidden_size, kernel_size=config.patch_size, stride=config.patch_size
         )
@@ -348,6 +350,7 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
         static: torch.Tensor | None = None,
         time_features: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
+        previous_states: torch.Tensor | None = None,
     ) -> NanoWeatherForecastOutput:
         r"""
         Args:
@@ -360,8 +363,16 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
             labels (`torch.FloatTensor` of shape `(batch_size, num_variables, latitude, longitude)`, *optional*):
                 Normalized state one time step after `states`. If given, the loss is returned (see `latitude_weighted_mse`,
                 `config.residual_scale` and `config.loss_weights`).
+            previous_states (`torch.FloatTensor` of shape `(batch_size, num_input_steps - 1, num_variables, latitude, longitude)`, *optional*):
+                Normalized states before `states`, oldest first, one time step apart. Required when
+                `config.num_input_steps > 1`.
         """
         inputs = [states]
+        if self.config.num_input_steps > 1:
+            expected = self.config.num_input_steps - 1
+            if previous_states is None or previous_states.shape[1] != expected:
+                raise ValueError(f"`previous_states` with {expected} time steps is required.")
+            inputs.insert(0, previous_states.flatten(1, 2).to(states.dtype))
         if self.config.num_static_channels > 0:
             if static is None:
                 raise ValueError(f"`static` is required: the model expects {self.config.num_static_channels} fields.")
@@ -402,6 +413,7 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
         static: torch.Tensor | None = None,
         num_steps: int = 1,
         time_features: torch.Tensor | None = None,
+        previous_states: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Forecasts `num_steps` time steps autoregressively, feeding each prediction back as the next input.
@@ -415,6 +427,9 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
                 Number of time steps.
             time_features (`torch.FloatTensor` of shape `(batch_size, num_steps, num_time_features, latitude, longitude)`, *optional*):
                 Time features at the input time of each step. Required when `config.num_time_features > 0`.
+            previous_states (`torch.FloatTensor` of shape `(batch_size, num_input_steps - 1, num_variables, latitude, longitude)`, *optional*):
+                Normalized states before `states`, oldest first. Required when `config.num_input_steps > 1`. At each
+                step, the oldest is dropped and the current state appended.
 
         Returns:
             `torch.FloatTensor` of shape `(batch_size, num_steps, num_variables, latitude, longitude)`, normalized.
@@ -423,6 +438,11 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
         current_states = states
         for step in range(num_steps):
             step_time_features = time_features[:, step] if time_features is not None else None
-            current_states = self(current_states, static=static, time_features=step_time_features).prediction
-            predictions.append(current_states)
+            prediction = self(
+                current_states, static=static, time_features=step_time_features, previous_states=previous_states
+            ).prediction
+            if previous_states is not None:
+                previous_states = torch.cat([previous_states[:, 1:], current_states[:, None]], dim=1)
+            current_states = prediction
+            predictions.append(prediction)
         return torch.stack(predictions, dim=1)

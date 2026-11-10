@@ -18,10 +18,11 @@ def get_forecast_and_truth(data, checkpoint: str, init_time: str, num_steps: int
         variables (those of the model).
     """
     init_index = np.flatnonzero(data.times == np.datetime64(pd.Timestamp(init_time)))
-    if len(init_index) == 0 or init_index[0] + num_steps >= len(data.times):
-        raise ValueError(f"{init_time} with {num_steps} steps is not covered by the split.")
-    init_index = init_index[0]
     forecaster = ModelForecaster(checkpoint, data.static)
+    history = forecaster.num_input_steps - 1
+    if len(init_index) == 0 or init_index[0] + num_steps >= len(data.times) or init_index[0] < history:
+        raise ValueError(f"{init_time} with {history} previous and {num_steps} following steps is not in the split.")
+    init_index = init_index[0]
     forecast = forecaster(data, np.array([init_index]), num_steps)[0]
     channels = [data.variables.index(name) for name in forecaster.variables]
     truth = data.states[init_index + 1 : init_index + 1 + num_steps][:, channels]

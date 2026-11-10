@@ -43,10 +43,15 @@ def main():
         args.data_path or data_config["output_dir"], split=args.split, store_name=data_config["store_name"]
     )
     lead_steps = [round(days * 24 / data.time_step_hours) for days in args.lead_days]
-    init_indices = get_init_indices(
-        data.times, args.init_start, args.init_end, args.init_frequency_hours, max(lead_steps)
-    )
     forecaster = ModelForecaster(args.checkpoint, data.static)
+    init_indices = get_init_indices(
+        data.times,
+        args.init_start,
+        args.init_end,
+        args.init_frequency_hours,
+        max(lead_steps),
+        forecaster.num_input_steps - 1,
+    )
     diagnostics = compute_diagnostics(forecaster, data, init_indices, lead_steps, args.variables, args.batch_size)
 
     output_dir = os.path.join(args.output_dir, default_model_name(args.checkpoint))

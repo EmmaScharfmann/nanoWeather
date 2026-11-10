@@ -69,15 +69,25 @@ class ModelForecaster:
         self.model = NanoWeatherForWeatherForecasting.from_pretrained(checkpoint).to(self.device)
         self.feature_extractor = NanoWeatherFeatureExtractor.from_pretrained(checkpoint, repo_type="model")
         self.variables = self.model.config.variables
+        self.num_input_steps = self.model.config.num_input_steps
         self.static = torch.from_numpy(static).to(self.device)
+
+    def _normalized_states(self, data, time_indices: np.ndarray, channels: list[int]) -> torch.Tensor:
+        states = data.states[time_indices][..., channels, :, :]
+        return torch.from_numpy(self.feature_extractor.normalize(states)).to(self.device)
 
     def __call__(self, data, init_indices: np.ndarray, num_steps: int) -> np.ndarray:
         missing = [name for name in self.variables if name not in data.variables]
         if missing:
             raise ValueError(f"The model needs variables missing from the data: {missing}")
         channels = [data.variables.index(name) for name in self.variables]
-        initial_states = data.states[init_indices][:, channels]
-        states = torch.from_numpy(self.feature_extractor.normalize(initial_states)).to(self.device)
+        states = self._normalized_states(data, init_indices, channels)
+        previous_states = None
+        if self.num_input_steps > 1:
+            if init_indices.min() < self.num_input_steps - 1:
+                raise ValueError(f"Initializations need {self.num_input_steps - 1} previous time steps in the data.")
+            offsets = np.arange(-(self.num_input_steps - 1), 0)
+            previous_states = self._normalized_states(data, init_indices[:, None] + offsets, channels)
         time_features = None
         if self.model.config.num_time_features > 0:
             step = np.timedelta64(data.time_step_hours, "h")
@@ -85,5 +95,11 @@ class ModelForecaster:
             features = get_time_features(step_times.ravel(), data.latitude, data.longitude, data.time_step_hours)
             features = features.reshape(len(init_indices), num_steps, *features.shape[1:])
             time_features = torch.from_numpy(features).to(self.device)
-        forecast = self.model.rollout(states, static=self.static, num_steps=num_steps, time_features=time_features)
+        forecast = self.model.rollout(
+            states,
+            static=self.static,
+            num_steps=num_steps,
+            time_features=time_features,
+            previous_states=previous_states,
+        )
         return self.feature_extractor.denormalize(forecast.float().cpu().numpy())

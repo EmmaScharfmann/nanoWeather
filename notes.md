@@ -110,6 +110,23 @@ Different test years (2017-2018), so only indicative.
   on 29 variables; both together on 6 variables. With tendency normalization, the overfit check starts at a loss
   of about 1 (persistence error in units of the typical change).
 
+## Round 3 results (loss)
+
+- Tendency normalization is the main effect: on 29 variables it brings t2m back to v0's level and gives the best
+  z500 and t850 (about -23% and -17% vs v0 at day 5), with a lower error growth rate.
+- Pressure weights alone fix t2m but do not improve z500 or t850. With tendency normalization, they trade some
+  upper-air skill for the best t2m (about -10% vs v0).
+- vars29_both beats v0 on all three variables at day 5 (z500 -17%, t850 -13%, t2m -10%). New baseline.
+- Both options also improve the 6-variable model by 6-9%.
+- Extrapolated, the baseline still reaches the climatology RMSE around 6-7 days (z500, t850) and 6 days (t2m).
+  State-of-the-art models keep useful z500 skill to about 9-10 days.
+
+## Round 4 (in progress): ACC and two input time steps
+
+- ACC and skill horizon (lead time where ACC < 0.6) added to the evaluation; evaluation extended to 10 days.
+- Two input time steps (t - 6h, t), as GraphCast and WeatherNext 2.
+- Second seed of the baseline, for run-to-run variation.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

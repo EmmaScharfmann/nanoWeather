@@ -29,6 +29,15 @@ typical change over one time step (`diff_std / std`), so all variables contribut
 once in total, and surface variables by `surface_loss_weights`. Validation losses are not comparable between runs
 with different loss settings; compare models with `scripts/evaluate.py`.
 
+`num_input_steps` sets how many consecutive states the model takes as input (the current one and previous ones,
+one time step apart). Evaluation scores all models on the initializations that have enough previous steps for the
+model that needs the most, so results stay comparable.
+
+The evaluation reports RMSE and the anomaly correlation coefficient (ACC, correlation of forecast and truth anomalies
+from the climatology, area-weighted). The skill horizon is the lead time at which ACC falls below `acc_threshold`
+(0.6 by default, the usual limit of a useful forecast). Results are in `<output_dir>/<model>.json` and
+`<output_dir>/scores.png`.
+
 Every script reads its settings from a config in `configs/`. Any setting can be overridden on the command line, and
 `--config` selects another file.
 
@@ -48,8 +57,9 @@ uv run scripts/train.py --overfit_one_batch
 uv run scripts/train.py
 uv run scripts/train.py --output_dir checkpoints/epochs50 --num_train_epochs 50
 uv run scripts/train.py --tendency_normalization --loss_weighting pressure
+uv run scripts/train.py --num_input_steps 2
 
-# Evaluation against persistence and climatology (configs/evaluation.yaml)
+# Evaluation against persistence and climatology: RMSE, ACC and skill horizon (configs/evaluation.yaml)
 uv run scripts/evaluate.py --checkpoint checkpoints/v0/best
 uv run scripts/evaluate.py --checkpoint checkpoints/v0/best checkpoints/epochs50/best --output_dir results/compare
 

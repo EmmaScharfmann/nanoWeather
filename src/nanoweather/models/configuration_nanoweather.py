@@ -19,6 +19,8 @@ class NanoWeatherConfig:
     Args:
         variables (`list[str]`, *optional*, defaults to `["z500", "t850", "t2m", "u10", "v10", "msl"]`):
             Prognostic variables, in channel order. Must match the feature extractor.
+        num_input_steps (`int`, *optional*, defaults to 1):
+            Number of consecutive states given as input: the current state and `num_input_steps - 1` previous ones.
         num_static_channels (`int`, *optional*, defaults to 2):
             Number of static fields concatenated to the input (land-sea mask and orography).
         num_time_features (`int`, *optional*, defaults to 0):
@@ -73,6 +75,7 @@ class NanoWeatherConfig:
     def __init__(
         self,
         variables: list[str] | None = None,
+        num_input_steps: int = 1,
         num_static_channels: int = 2,
         num_time_features: int = 0,
         grid_size: tuple[int, int] | list[int] = (32, 64),
@@ -92,6 +95,7 @@ class NanoWeatherConfig:
         **kwargs,
     ):
         self.variables = list(variables) if variables is not None else ["z500", "t850", "t2m", "u10", "v10", "msl"]
+        self.num_input_steps = num_input_steps
         self.num_static_channels = num_static_channels
         self.num_time_features = num_time_features
         self.grid_size = tuple(grid_size)
@@ -124,6 +128,8 @@ class NanoWeatherConfig:
                 )
         if self.residual_scale is not None and not predict_residual:
             raise ValueError("`residual_scale` requires `predict_residual=True`.")
+        if num_input_steps < 1:
+            raise ValueError(f"`num_input_steps` must be at least 1, got {num_input_steps}.")
         if attn_implementation not in ("sdpa", "eager"):
             raise ValueError(f"`attn_implementation` must be `'sdpa'` or `'eager'`, got {attn_implementation!r}.")
         for key in kwargs:

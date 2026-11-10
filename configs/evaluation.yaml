@@ -7,4 +7,5 @@ init_frequency_hours: 12
 num_steps: 20
 batch_size: 64
 summary_lead_hours: 72
+acc_threshold: 0.6
 plot_variables: [z500, t850, t2m]

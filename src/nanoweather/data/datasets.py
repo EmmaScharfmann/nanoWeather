@@ -79,7 +79,8 @@ class ForecastPairs(torch.utils.data.Dataset):
     """
     Pairs of normalized states (state at t, state at t + lead), as dicts of float32 tensors.
 
-    Each sample has `states` and `labels` of shape `(num_variables, latitude, longitude)`, and `time_features` of
+    Each sample has `states` and `labels` of shape `(num_variables, latitude, longitude)`, `previous_states` of shape
+    `(num_input_steps - 1, num_variables, latitude, longitude)` when `num_input_steps > 1`, and `time_features` of
     shape `(num_time_features, latitude, longitude)` when enabled. Keys match the arguments of the model's `forward`.
 
     Args:
@@ -89,17 +90,22 @@ class ForecastPairs(torch.utils.data.Dataset):
             Number of time steps between input and target.
         time_features (`bool`, *optional*, defaults to `False`):
             Whether to include time features (sunlight at t and t + one step, time of year).
+        num_input_steps (`int`, *optional*, defaults to 1):
+            Number of consecutive input states, the last one at t.
     """
 
-    def __init__(self, data: WeatherData, lead_steps: int = 1, time_features: bool = False):
+    def __init__(self, data: WeatherData, lead_steps: int = 1, time_features: bool = False, num_input_steps: int = 1):
         self.states = torch.from_numpy(data.normalized_states)
         self.lead_steps = lead_steps
+        self.num_history_steps = num_input_steps - 1
         self.time_features = None
         if time_features:
             features = get_time_features(data.times, data.latitude, data.longitude, data.time_step_hours)
             self.time_features = torch.from_numpy(features)
-        hours_apart = (data.times[lead_steps:] - data.times[:-lead_steps]) / np.timedelta64(1, "h")
-        self.indices = np.flatnonzero(hours_apart == data.time_step_hours * lead_steps)
+        first, last = self.num_history_steps, len(data.times) - lead_steps
+        span_hours = (data.times[first + lead_steps :] - data.times[: last - first]) / np.timedelta64(1, "h")
+        expected_hours = data.time_step_hours * (self.num_history_steps + lead_steps)
+        self.indices = first + np.flatnonzero(span_hours == expected_hours)
 
     def __len__(self) -> int:
         return len(self.indices)
@@ -107,6 +113,8 @@ class ForecastPairs(torch.utils.data.Dataset):
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         time_index = self.indices[index]
         sample = {"states": self.states[time_index], "labels": self.states[time_index + self.lead_steps]}
+        if self.num_history_steps > 0:
+            sample["previous_states"] = self.states[time_index - self.num_history_steps : time_index]
         if self.time_features is not None:
             sample["time_features"] = self.time_features[time_index]
         return sample

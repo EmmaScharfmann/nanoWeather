@@ -16,6 +16,7 @@ from nanoweather.evaluation.evaluate import (
     get_targets,
 )
 from nanoweather.evaluation.forecasters import ClimatologyForecaster, persistence_forecaster
+from nanoweather.evaluation.metrics import anomaly_correlation, skill_horizon_hours
 
 
 NUM_STEPS = 20
@@ -108,3 +109,47 @@ def test_diagnostics_of_a_biased_forecast(data, init_indices):
     np.testing.assert_allclose(diagnostics["rmse_by_latitude"], 1.0, atol=1e-6)
     assert diagnostics["bias"].shape == (2, 2, 4, 8)
     assert list(diagnostics["lead_hours"]) == [6, 24]
+
+
+def test_anomaly_correlation():
+    rng = np.random.default_rng(2)
+    climatology = rng.normal(size=(3, 4, 8))
+    truth = climatology + rng.normal(size=(3, 4, 8))
+    weights = np.ones(4)
+    np.testing.assert_allclose(anomaly_correlation(truth, truth, climatology, weights), 1.0)
+    np.testing.assert_allclose(anomaly_correlation(2 * climatology - truth, truth, climatology, weights), -1.0)
+    assert np.isnan(anomaly_correlation(climatology, truth, climatology, weights)).all()
+
+
+def test_skill_horizon():
+    lead_hours = np.array([6, 12, 18, 24])
+    assert skill_horizon_hours(lead_hours, np.array([0.9, 0.8, 0.5, 0.4]), 0.6) == pytest.approx(16.0)
+    assert skill_horizon_hours(lead_hours, np.array([0.9, 0.8, 0.7, 0.65]), 0.6) is None
+    assert skill_horizon_hours(lead_hours, np.full(4, np.nan), 0.6) is None
+
+
+def test_evaluation_with_acc(data, init_indices):
+    def climatology_forecaster(data, init_indices, num_steps):
+        return np.zeros_like(get_targets(data, init_indices, num_steps))
+
+    climatology_forecaster.variables = VARIABLES
+    results = evaluate_forecaster(
+        get_targets,
+        data,
+        init_indices,
+        NUM_STEPS,
+        batch_size=64,
+        variables=VARIABLES,
+        climatology=climatology_forecaster,
+    )
+    np.testing.assert_allclose(results["acc"], 1.0)
+    results = evaluate_forecaster(
+        persistence_forecaster, data, init_indices, NUM_STEPS, batch_size=64, variables=VARIABLES
+    )
+    assert results["acc"] is None
+
+
+def test_init_indices_with_history(data):
+    indices = get_init_indices(data.times, "2020-01-01T00", "2020-12-31T12", 12, NUM_STEPS, num_history_steps=1)
+    assert len(indices) == 731
+    assert indices.min() >= 1

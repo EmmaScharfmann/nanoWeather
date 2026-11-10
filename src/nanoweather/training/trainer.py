@@ -1,4 +1,4 @@
-"""Training loop for one-step forecasting with a latitude-weighted MSE loss."""
+"""Training loop: one-step training from scratch, or rollout fine-tuning of a trained model."""
 
 import json
 import logging
@@ -10,6 +10,7 @@ from argparse import Namespace
 
 import numpy as np
 import torch
+from torch.utils.checkpoint import checkpoint
 
 from ..data.datasets import ForecastPairs, WeatherData
 from ..models.configuration_nanoweather import NanoWeatherConfig
@@ -57,9 +58,68 @@ def to_device(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str,
     return {key: value.to(device, non_blocking=True) for key, value in batch.items()}
 
 
-def training_step(model, batch, static, optimizer, scheduler, max_grad_norm: float, use_bf16: bool) -> float:
+def rollout_loss(model, batch: dict[str, torch.Tensor], static: torch.Tensor, gradient_checkpointing: bool = False):
+    """
+    Mean loss over consecutive forecast steps, each step taking the previous prediction as input.
+
+    Gradients flow through the whole rollout, so the loss at later steps also trains the earlier ones. With one target
+    step (`labels` of shape `(batch_size, num_variables, latitude, longitude)`), this is the one-step loss.
+
+    Args:
+        model (`NanoWeatherForWeatherForecasting`):
+            Model to train.
+        batch (`dict[str, torch.Tensor]`):
+            Sample from `ForecastPairs`, with `labels` of shape `(batch_size, num_rollout_steps, ...)` for a rollout.
+        static (`torch.Tensor`):
+            Normalized static fields.
+        gradient_checkpointing (`bool`, *optional*, defaults to `False`):
+            Recompute each step's activations during the backward pass instead of storing them, so memory does not
+            grow with the number of steps, at the cost of about one more forward pass.
+    """
+    labels = batch["labels"]
+    time_features = batch.get("time_features")
+    if labels.dim() == 4:
+        labels = labels[:, None]
+        time_features = time_features[:, None] if time_features is not None else None
+    states, previous_states = batch["states"], batch.get("previous_states")
+
+    def step(states, previous_states, step_time_features, step_labels):
+        output = model(
+            states,
+            static=static,
+            time_features=step_time_features,
+            previous_states=previous_states,
+            labels=step_labels,
+        )
+        return output.prediction, output.loss
+
+    losses = []
+    for index in range(labels.shape[1]):
+        step_time_features = time_features[:, index] if time_features is not None else None
+        inputs = (states, previous_states, step_time_features, labels[:, index])
+        if gradient_checkpointing and torch.is_grad_enabled():
+            prediction, loss = checkpoint(step, *inputs, use_reentrant=False)
+        else:
+            prediction, loss = step(*inputs)
+        losses.append(loss)
+        if previous_states is not None:
+            previous_states = torch.cat([previous_states[:, 1:], states[:, None]], dim=1)
+        states = prediction
+    return torch.stack(losses).mean()
+
+
+def training_step(
+    model,
+    batch,
+    static,
+    optimizer,
+    scheduler,
+    max_grad_norm: float,
+    use_bf16: bool,
+    gradient_checkpointing: bool = False,
+) -> float:
     with torch.autocast(device_type=static.device.type, dtype=torch.bfloat16, enabled=use_bf16):
-        loss = model(**batch, static=static).loss
+        loss = rollout_loss(model, batch, static, gradient_checkpointing)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -71,13 +131,13 @@ def training_step(model, batch, static, optimizer, scheduler, max_grad_norm: flo
 
 @torch.no_grad()
 def evaluate_loss(model, dataloader, static, device, use_bf16: bool) -> float:
-    """Mean loss over a dataloader, weighted by batch size."""
+    """Mean rollout loss over a dataloader, weighted by batch size."""
     model.eval()
     total_loss, num_samples = 0.0, 0
     for batch in dataloader:
         batch = to_device(batch, device)
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
-            loss = model(**batch, static=static).loss
+            loss = rollout_loss(model, batch, static)
         batch_size = batch["states"].shape[0]
         total_loss += loss.item() * batch_size
         num_samples += batch_size
@@ -129,7 +189,9 @@ def overfit_one_batch(model, train_pairs, static, device, args: Namespace, use_b
     optimizer = get_optimizer(model, args.learning_rate, weight_decay=0.0)
     initial_loss = None
     for step in range(1, args.overfit_steps + 1):
-        loss = training_step(model, batch, static, optimizer, None, args.max_grad_norm, use_bf16)
+        loss = training_step(
+            model, batch, static, optimizer, None, args.max_grad_norm, use_bf16, args.gradient_checkpointing
+        )
         initial_loss = initial_loss if initial_loss is not None else loss
         if step == 1 or step % args.logging_steps == 0:
             logger.info(f"overfit step {step:5d} | loss {loss:.6f}")
@@ -143,32 +205,29 @@ def overfit_one_batch(model, train_pairs, static, device, args: Namespace, use_b
     return ratio
 
 
-def train(args: Namespace, data_config: dict):
+def build_model(args: Namespace, data_config: dict, train_data: WeatherData, num_static_channels: int):
     """
-    Trains a model as configured in `args` (see `configs/train/v0.yaml`).
+    A new model configured from `args`, or with `args.init_from` the trained model to fine-tune.
 
-    Without `args.overfit_one_batch`, trains on the train split, computes the val loss after each epoch, and writes to
-    `args.output_dir`: `best/` (lowest val loss), `last/` and `training_history.json`. Checkpoints contain the model and
-    the feature extractor used for training.
+    When fine-tuning, the architecture, inputs and loss settings come from the checkpoint, and the corresponding
+    arguments are ignored.
     """
-    set_seed(args.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    use_bf16 = device.type == "cuda" and args.bf16
-    logger.info(f"Device {device}, bf16 {use_bf16}")
+    if args.init_from:
+        model = NanoWeatherForWeatherForecasting.from_pretrained(args.init_from)
+        if model.config.variables != train_data.variables:
+            raise ValueError(f"The model in {args.init_from} was trained on other variables than this dataset.")
+        logger.info(f"Fine-tuning {args.init_from}; model and loss settings come from its config")
+        return model.train()
 
-    store_name = data_config["store_name"]
-    train_data = WeatherData(args.data_path, split="train", store_name=store_name)
-    train_pairs = ForecastPairs(
-        train_data, lead_steps=1, time_features=args.use_time_features, num_input_steps=args.num_input_steps
-    )
-    static = torch.from_numpy(train_data.static).to(device)
-
+    missing = [name for name in ("patch_size", "hidden_size", "num_hidden_layers") if getattr(args, name) is None]
+    if missing:
+        raise ValueError(f"Set {', '.join(missing)} to train a new model, or init_from to fine-tune a trained one.")
     loss_settings = get_loss_settings(args, data_config, train_data.feature_extractor)
     log_loss_settings(train_data.variables, loss_settings)
     config = NanoWeatherConfig(
         variables=train_data.variables,
         num_input_steps=args.num_input_steps,
-        num_static_channels=static.shape[0],
+        num_static_channels=num_static_channels,
         num_time_features=NUM_TIME_FEATURES if args.use_time_features else 0,
         grid_size=train_data.states.shape[-2:],
         patch_size=args.patch_size,
@@ -178,72 +237,125 @@ def train(args: Namespace, data_config: dict):
         intermediate_size=args.intermediate_size,
         **loss_settings,
     )
-    model = NanoWeatherForWeatherForecasting(config).to(device)
+    return NanoWeatherForWeatherForecasting(config)
+
+
+def make_dataset(data: WeatherData, config: NanoWeatherConfig, num_rollout_steps: int) -> ForecastPairs:
+    return ForecastPairs(
+        data,
+        num_rollout_steps=num_rollout_steps,
+        time_features=config.num_time_features > 0,
+        num_input_steps=config.num_input_steps,
+    )
+
+
+def train(args: Namespace, data_config: dict):
+    """
+    Trains a model as configured in `args` (see `configs/train/v0.yaml` and `configs/train/rollout.yaml`).
+
+    Training runs in stages, one per entry of `args.rollout_steps`, each for `args.num_train_epochs` epochs with the
+    loss averaged over that many consecutive forecast steps. `[1]` is one-step training. For rollout fine-tuning, start
+    from a trained model with `args.init_from` and increase the number of steps, e.g. `[2, 4, 8]`.
+
+    The val loss is computed after each epoch over the largest number of steps of all stages, so it is comparable
+    across stages. Writes to `args.output_dir`: `best/` (lowest val loss), `last/` and `training_history.json`.
+    Checkpoints contain the model and the feature extractor used for training.
+    """
+    set_seed(args.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    use_bf16 = device.type == "cuda" and args.bf16
+    logger.info(f"Device {device}, bf16 {use_bf16}")
+
+    store_name = data_config["store_name"]
+    train_data = WeatherData(args.data_path, split="train", store_name=store_name)
+    static = torch.from_numpy(train_data.static).to(device)
+    model = build_model(args, data_config, train_data, static.shape[0]).to(device)
+    config = model.config
     logger.info(f"Model with {model.num_parameters() / 1e6:.2f}M parameters")
     if args.compile:
         model = torch.compile(model)
 
+    stages = list(args.rollout_steps)
     if args.overfit_one_batch:
-        overfit_one_batch(model, train_pairs, static, device, args, use_bf16)
+        overfit_one_batch(model, make_dataset(train_data, config, stages[0]), static, device, args, use_bf16)
         return
 
     val_data = WeatherData(
         args.data_path, split="val", store_name=store_name, feature_extractor=train_data.feature_extractor
     )
-    val_pairs = ForecastPairs(
-        val_data, lead_steps=1, time_features=args.use_time_features, num_input_steps=args.num_input_steps
-    )
     pin_memory = device.type == "cuda"
-    train_loader = torch.utils.data.DataLoader(
-        train_pairs, batch_size=args.batch_size, shuffle=True, drop_last=True, pin_memory=pin_memory
+    val_steps = max(stages)
+    val_loader = torch.utils.data.DataLoader(
+        make_dataset(val_data, config, val_steps), batch_size=args.eval_batch_size, pin_memory=pin_memory
     )
-    val_loader = torch.utils.data.DataLoader(val_pairs, batch_size=args.eval_batch_size, pin_memory=pin_memory)
 
-    num_training_steps = args.num_train_epochs * len(train_loader)
+    steps_per_epoch = {
+        num_steps: len(ForecastPairs(train_data, num_steps, num_input_steps=config.num_input_steps)) // args.batch_size
+        for num_steps in stages
+    }
+    num_training_steps = args.num_train_epochs * sum(steps_per_epoch.values())
     optimizer = get_optimizer(model, args.learning_rate, args.weight_decay)
     scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup_steps, num_training_steps)
     logger.info(
-        f"{len(train_pairs)} train pairs, {len(val_pairs)} val pairs, {len(train_loader)} steps per epoch, "
-        f"{num_training_steps} steps in total"
+        f"Stages (forecast steps per sample): {stages}, {args.num_train_epochs} epoch(s) each, "
+        f"{num_training_steps} optimizer steps in total; val loss over {val_steps} steps"
     )
 
     os.makedirs(args.output_dir, exist_ok=True)
     best_dir = os.path.join(args.output_dir, "best")
     history = {"args": vars(args), "train_loss": [], "val_loss": []}
     best_val_loss = float("inf")
-    global_step = 0
+    global_step, epoch = 0, 0
     model.train()
 
-    for epoch in range(1, args.num_train_epochs + 1):
-        epoch_start = time.time()
-        running_loss = 0.0
-        for batch in train_loader:
-            loss = training_step(
-                model, to_device(batch, device), static, optimizer, scheduler, args.max_grad_norm, use_bf16
-            )
-            running_loss += loss
-            global_step += 1
-            if global_step % args.logging_steps == 0:
-                mean_loss = running_loss / args.logging_steps
-                history["train_loss"].append({"step": global_step, "loss": mean_loss})
-                logger.info(
-                    f"epoch {epoch:3d} | step {global_step:7d} | loss {mean_loss:.5f} | "
-                    f"lr {scheduler.get_last_lr()[0]:.2e}"
-                )
-                running_loss = 0.0
-
-        val_loss = evaluate_loss(model, val_loader, static, device, use_bf16)
-        history["val_loss"].append({"epoch": epoch, "step": global_step, "loss": val_loss})
-        is_best = val_loss < best_val_loss
-        if is_best:
-            best_val_loss = val_loss
-            save_checkpoint(model, train_data.feature_extractor, best_dir)
-        logger.info(
-            f"epoch {epoch:3d} done in {time.time() - epoch_start:.0f}s | val loss {val_loss:.5f}"
-            + (" | new best, saved" if is_best else "")
+    for num_steps in stages:
+        train_loader = torch.utils.data.DataLoader(
+            make_dataset(train_data, config, num_steps),
+            batch_size=args.batch_size,
+            shuffle=True,
+            drop_last=True,
+            pin_memory=pin_memory,
         )
-        with open(os.path.join(args.output_dir, "training_history.json"), "w", encoding="utf-8") as writer:
-            json.dump(history, writer, indent=2)
+        for _ in range(args.num_train_epochs):
+            epoch += 1
+            epoch_start = time.time()
+            running_loss = 0.0
+            for batch in train_loader:
+                loss = training_step(
+                    model,
+                    to_device(batch, device),
+                    static,
+                    optimizer,
+                    scheduler,
+                    args.max_grad_norm,
+                    use_bf16,
+                    args.gradient_checkpointing,
+                )
+                running_loss += loss
+                global_step += 1
+                if global_step % args.logging_steps == 0:
+                    mean_loss = running_loss / args.logging_steps
+                    history["train_loss"].append({"step": global_step, "rollout_steps": num_steps, "loss": mean_loss})
+                    logger.info(
+                        f"epoch {epoch:3d} | {num_steps} steps | step {global_step:7d} | loss {mean_loss:.5f} | "
+                        f"lr {scheduler.get_last_lr()[0]:.2e}"
+                    )
+                    running_loss = 0.0
+
+            val_loss = evaluate_loss(model, val_loader, static, device, use_bf16)
+            history["val_loss"].append(
+                {"epoch": epoch, "step": global_step, "rollout_steps": num_steps, "loss": val_loss}
+            )
+            is_best = val_loss < best_val_loss
+            if is_best:
+                best_val_loss = val_loss
+                save_checkpoint(model, train_data.feature_extractor, best_dir)
+            logger.info(
+                f"epoch {epoch:3d} ({num_steps} steps) done in {time.time() - epoch_start:.0f}s | "
+                f"val loss over {val_steps} steps {val_loss:.5f}" + (" | new best, saved" if is_best else "")
+            )
+            with open(os.path.join(args.output_dir, "training_history.json"), "w", encoding="utf-8") as writer:
+                json.dump(history, writer, indent=2)
 
     save_checkpoint(model, train_data.feature_extractor, os.path.join(args.output_dir, "last"))
     logger.info(f"Best val loss {best_val_loss:.5f}, checkpoint in {best_dir}")

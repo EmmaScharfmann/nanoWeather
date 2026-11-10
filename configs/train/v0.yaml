@@ -26,6 +26,11 @@ max_grad_norm: 1.0
 bf16: true
 compile: false
 
+# Rollout: one training stage per entry, with the loss over that many consecutive forecast steps
+init_from: null
+rollout_steps: [1]
+gradient_checkpointing: false
+
 # Overfit check
 overfit_steps: 1000
 

@@ -127,6 +127,19 @@ Different test years (2017-2018), so only indicative.
 - Two input time steps (t - 6h, t), as GraphCast and WeatherNext 2.
 - Second seed of the baseline, for run-to-run variation.
 
+## Round 4 results (ACC, two input steps, seeds)
+
+- Seed-to-seed variation: under 1% in RMSE, about 0.1 day in skill horizon.
+- Skill horizon (ACC > 0.6): v0 4.9 / 4.6 / 4.7 days (z500 / t850 / t2m); vars29_both 6.1-6.2 / 5.6-5.7 / 5.5-5.6.
+- Two input steps: better at 6h by 3-7% on all variables, but worse once both inputs are model predictions (from
+  about 12-18h for z500 and msl, about 2 days for t850 and t2m). Skill horizon unchanged. Interpretation: the model is
+  not robust to its own predictions as history, expected to be fixed by rollout training.
+
+## Round 5 (in progress): rollout fine-tuning
+
+- Fine-tuning from the one-step baseline and the two-step model, loss over 2, then 4, then 8 consecutive steps,
+  one epoch each, learning rate 1e-4. Expected: lower error growth, larger gain for the two-step model.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

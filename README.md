@@ -33,6 +33,12 @@ with different loss settings; compare models with `scripts/evaluate.py`.
 one time step apart). Evaluation scores all models on the initializations that have enough previous steps for the
 model that needs the most, so results stay comparable.
 
+Rollout fine-tuning (`configs/train/rollout.yaml`) continues training a model from `init_from` with the loss
+averaged over several consecutive forecast steps, each step taking the previous prediction as input, with gradients
+through the whole rollout. Training runs in stages, one per entry of `rollout_steps` (e.g. `[2, 4, 8]`), each for
+`num_train_epochs` epochs. The val loss is computed over the largest number of steps, so it is comparable across
+stages. `gradient_checkpointing` reduces memory for long rollouts at the cost of extra compute.
+
 The evaluation reports RMSE and the anomaly correlation coefficient (ACC, correlation of forecast and truth anomalies
 from the climatology, area-weighted). The skill horizon is the lead time at which ACC falls below `acc_threshold`
 (0.6 by default, the usual limit of a useful forecast). Results are in `<output_dir>/<model>.json` and
@@ -58,6 +64,7 @@ uv run scripts/train.py
 uv run scripts/train.py --output_dir checkpoints/epochs50 --num_train_epochs 50
 uv run scripts/train.py --tendency_normalization --loss_weighting pressure
 uv run scripts/train.py --num_input_steps 2
+uv run scripts/train.py --config configs/train/rollout.yaml --init_from checkpoints/vars29_both/best
 
 # Evaluation against persistence and climatology: RMSE, ACC and skill horizon (configs/evaluation.yaml)
 uv run scripts/evaluate.py --checkpoint checkpoints/v0/best

@@ -1,4 +1,5 @@
-"""Trains a model. Settings come from a YAML config; any of them can be overridden on the command line.
+"""Trains a model, or fine-tunes one on multi-step rollouts. Settings come from a YAML config; any of them can be
+overridden on the command line.
 
 uv run scripts/train.py --overfit_one_batch
 uv run scripts/train.py --config configs/train/v0.yaml
@@ -40,6 +41,11 @@ def main():
     parser.add_argument("--max_grad_norm", type=float)
     parser.add_argument("--bf16", type=str_to_bool, nargs="?", const=True)
     parser.add_argument("--compile", type=str_to_bool, nargs="?", const=True)
+    parser.add_argument("--init_from", type=str, help="Trained model to fine-tune.")
+    parser.add_argument(
+        "--rollout_steps", type=int, nargs="+", help="Forecast steps per sample, one training stage each."
+    )
+    parser.add_argument("--gradient_checkpointing", type=str_to_bool, nargs="?", const=True)
     parser.add_argument("--overfit_one_batch", action="store_true")
     parser.add_argument("--overfit_steps", type=int)
     parser.add_argument("--logging_steps", type=int)

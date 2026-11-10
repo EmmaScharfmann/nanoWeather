@@ -77,44 +77,58 @@ class WeatherData:
 
 class ForecastPairs(torch.utils.data.Dataset):
     """
-    Pairs of normalized states (state at t, state at t + lead), as dicts of float32 tensors.
+    Training samples: normalized input states and the states that follow, as dicts of float32 tensors.
 
-    Each sample has `states` and `labels` of shape `(num_variables, latitude, longitude)`, `previous_states` of shape
-    `(num_input_steps - 1, num_variables, latitude, longitude)` when `num_input_steps > 1`, and `time_features` of
-    shape `(num_time_features, latitude, longitude)` when enabled. Keys match the arguments of the model's `forward`.
+    Each sample has:
+        - `states`: the state at t, `(num_variables, latitude, longitude)`.
+        - `labels`: the next state, `(num_variables, latitude, longitude)`, or with `num_rollout_steps > 1` the next
+          `num_rollout_steps` states, `(num_rollout_steps, num_variables, latitude, longitude)`.
+        - `previous_states` when `num_input_steps > 1`: the states before t, oldest first,
+          `(num_input_steps - 1, num_variables, latitude, longitude)`.
+        - `time_features` when enabled: at t, `(num_time_features, latitude, longitude)`, or at the input time of each
+          rollout step, `(num_rollout_steps, num_time_features, latitude, longitude)`.
 
     Args:
         data (`WeatherData`):
-            The split to draw pairs from.
-        lead_steps (`int`, *optional*, defaults to 1):
-            Number of time steps between input and target.
+            The split to draw samples from.
+        num_rollout_steps (`int`, *optional*, defaults to 1):
+            Number of consecutive target states.
         time_features (`bool`, *optional*, defaults to `False`):
             Whether to include time features (sunlight at t and t + one step, time of year).
         num_input_steps (`int`, *optional*, defaults to 1):
             Number of consecutive input states, the last one at t.
     """
 
-    def __init__(self, data: WeatherData, lead_steps: int = 1, time_features: bool = False, num_input_steps: int = 1):
+    def __init__(
+        self, data: WeatherData, num_rollout_steps: int = 1, time_features: bool = False, num_input_steps: int = 1
+    ):
         self.states = torch.from_numpy(data.normalized_states)
-        self.lead_steps = lead_steps
+        self.num_rollout_steps = num_rollout_steps
         self.num_history_steps = num_input_steps - 1
         self.time_features = None
         if time_features:
             features = get_time_features(data.times, data.latitude, data.longitude, data.time_step_hours)
             self.time_features = torch.from_numpy(features)
-        first, last = self.num_history_steps, len(data.times) - lead_steps
-        span_hours = (data.times[first + lead_steps :] - data.times[: last - first]) / np.timedelta64(1, "h")
-        expected_hours = data.time_step_hours * (self.num_history_steps + lead_steps)
+        first, last = self.num_history_steps, len(data.times) - num_rollout_steps
+        span_hours = (data.times[first + num_rollout_steps :] - data.times[: last - first]) / np.timedelta64(1, "h")
+        expected_hours = data.time_step_hours * (self.num_history_steps + num_rollout_steps)
         self.indices = first + np.flatnonzero(span_hours == expected_hours)
 
     def __len__(self) -> int:
         return len(self.indices)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        time_index = self.indices[index]
-        sample = {"states": self.states[time_index], "labels": self.states[time_index + self.lead_steps]}
+        t = self.indices[index]
+        sample = {"states": self.states[t]}
+        if self.num_rollout_steps == 1:
+            sample["labels"] = self.states[t + 1]
+        else:
+            sample["labels"] = self.states[t + 1 : t + 1 + self.num_rollout_steps]
         if self.num_history_steps > 0:
-            sample["previous_states"] = self.states[time_index - self.num_history_steps : time_index]
+            sample["previous_states"] = self.states[t - self.num_history_steps : t]
         if self.time_features is not None:
-            sample["time_features"] = self.time_features[time_index]
+            if self.num_rollout_steps == 1:
+                sample["time_features"] = self.time_features[t]
+            else:
+                sample["time_features"] = self.time_features[t : t + self.num_rollout_steps]
         return sample

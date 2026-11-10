@@ -52,12 +52,14 @@ def test_compute_statistics(source):
 
 def test_dataset_card(tmp_path):
     data_config = load_yaml("configs/data.yaml")
+    variables = list(expand_variables(data_config))
+    num_variables = len(variables)
     feature_extractor = NanoWeatherFeatureExtractor(
-        variables=list(data_config["variables"]),
-        mean=[1.0] * 6,
-        std=[2.0] * 6,
-        diff_std=[0.5] * 6,
-        units=["K"] * 6,
+        variables=variables,
+        mean=[1.0] * num_variables,
+        std=[2.0] * num_variables,
+        diff_std=[0.5] * num_variables,
+        units=["K"] * num_variables,
     )
     num_steps = dict.fromkeys(data_config["splits"], 10)
     write_dataset_card(tmp_path, load_yaml("configs/dataset_card.yaml"), data_config, feature_extractor, num_steps)
@@ -81,5 +83,6 @@ def test_expand_variables():
         "u850": {"source": "u_component_of_wind", "level": 850},
         "t2m": {"source": "2m_temperature"},
     }
-    assert list(expand_variables(load_yaml("configs/data.yaml"))) == ["z500", "t850", "t2m", "u10", "v10", "msl"]
-    assert len(expand_variables(load_yaml("configs/data_29vars.yaml"))) == 29
+    six = expand_variables(load_yaml("experiments/configs/data_6vars.yaml"))
+    assert list(six) == ["z500", "t850", "t2m", "u10", "v10", "msl"]
+    assert len(expand_variables(load_yaml("configs/data.yaml"))) == 29

@@ -1,59 +1,30 @@
-"""Trains a model, or fine-tunes one on multi-step rollouts. Settings come from a YAML config; any of them can be
-overridden on the command line.
+"""Trains a model (step 1 of the recipe), or fine-tunes it on multi-step rollouts (step 2).
 
-uv run scripts/train.py --overfit_one_batch
-uv run scripts/train.py --config configs/train/v0.yaml
-uv run scripts/train.py --output_dir checkpoints/epochs50 --num_train_epochs 50
+    uv run scripts/train.py --overfit_one_batch
+    uv run scripts/train.py
+    uv run scripts/train.py --config configs/train/rollout.yaml
+    uv run scripts/train.py --output_dir checkpoints/epochs50 --set num_train_epochs=50
+
+All settings are in the config (configs/train/pretrain.yaml by default); --set overrides any of them.
 """
 
 import argparse
 import logging
 
-from nanoweather.config import load_yaml, parse_args_with_config
+from nanoweather.config import load_config, parse_args_with_config
 from nanoweather.training.trainer import train
-
-
-def str_to_bool(value: str) -> bool:
-    return value.lower() in ("1", "true", "yes")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data_config", type=str)
-    parser.add_argument("--data_path", type=str, default=None, help="Defaults to `output_dir` of the data config.")
-    parser.add_argument("--output_dir", type=str)
-    parser.add_argument("--push_to_hub", type=str, default=None, help="Model repository id for the best checkpoint.")
-    parser.add_argument("--patch_size", type=int)
-    parser.add_argument("--hidden_size", type=int)
-    parser.add_argument("--num_hidden_layers", type=int)
-    parser.add_argument("--num_attention_heads", type=int)
-    parser.add_argument("--intermediate_size", type=int)
-    parser.add_argument("--num_input_steps", type=int)
-    parser.add_argument("--use_time_features", type=str_to_bool, nargs="?", const=True)
-    parser.add_argument("--tendency_normalization", type=str_to_bool, nargs="?", const=True)
-    parser.add_argument("--loss_weighting", type=str, choices=["uniform", "pressure"])
-    parser.add_argument("--num_train_epochs", type=int)
-    parser.add_argument("--batch_size", type=int)
-    parser.add_argument("--eval_batch_size", type=int)
-    parser.add_argument("--learning_rate", type=float)
-    parser.add_argument("--weight_decay", type=float)
-    parser.add_argument("--warmup_steps", type=int)
-    parser.add_argument("--max_grad_norm", type=float)
-    parser.add_argument("--bf16", type=str_to_bool, nargs="?", const=True)
-    parser.add_argument("--compile", type=str_to_bool, nargs="?", const=True)
-    parser.add_argument("--init_from", type=str, help="Trained model to fine-tune.")
-    parser.add_argument(
-        "--rollout_steps", type=int, nargs="+", help="Forecast steps per sample, one training stage each."
-    )
-    parser.add_argument("--gradient_checkpointing", type=str_to_bool, nargs="?", const=True)
-    parser.add_argument("--overfit_one_batch", action="store_true")
-    parser.add_argument("--overfit_steps", type=int)
-    parser.add_argument("--logging_steps", type=int)
-    parser.add_argument("--seed", type=int)
-    args = parse_args_with_config(parser, default_config="configs/train/v0.yaml")
+    parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument("--init_from", type=str, default=None, help="Trained model to fine-tune.")
+    parser.add_argument("--overfit_one_batch", action="store_true", default=None, help="Sanity check on one batch.")
+    args = parse_args_with_config(parser, default_config="configs/train/pretrain.yaml")
+    args.overfit_one_batch = bool(args.overfit_one_batch)
     logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
 
-    data_config = load_yaml(args.data_config)
+    data_config = load_config(args.data_config)
     args.data_path = args.data_path or data_config["output_dir"]
     train(args, data_config)
 

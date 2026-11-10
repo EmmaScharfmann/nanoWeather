@@ -1,5 +1,8 @@
+# Step 1 of the recipe: one-step training from scratch.
 data_config: configs/data.yaml
-output_dir: checkpoints/v0
+data_path: null  # defaults to output_dir of the data config
+output_dir: checkpoints/pretrain
+push_to_hub: null
 
 # Model
 patch_size: 2
@@ -11,12 +14,14 @@ num_input_steps: 1
 use_time_features: false
 
 # Loss
-tendency_normalization: false
-loss_weighting: uniform
+tendency_normalization: true
+loss_weighting: pressure  # or uniform
 surface_loss_weights: {t2m: 1.0, u10: 0.1, v10: 0.1, msl: 0.1}
 
-# Optimization
-num_train_epochs: 20
+# Training: one stage per entry of rollout_steps, the loss averaged over that many forecast steps
+init_from: null
+rollout_steps: [1]
+num_train_epochs: 20  # per stage
 batch_size: 32
 eval_batch_size: 128
 learning_rate: 5.0e-4
@@ -25,14 +30,8 @@ warmup_steps: 1000
 max_grad_norm: 1.0
 bf16: true
 compile: false
-
-# Rollout: one training stage per entry, with the loss over that many consecutive forecast steps
-init_from: null
-rollout_steps: [1]
 gradient_checkpointing: false
 
-# Overfit check
 overfit_steps: 1000
-
 logging_steps: 50
 seed: 42

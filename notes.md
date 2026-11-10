@@ -135,10 +135,21 @@ Different test years (2017-2018), so only indicative.
   about 12-18h for z500 and msl, about 2 days for t850 and t2m). Skill horizon unchanged. Interpretation: the model is
   not robust to its own predictions as history, expected to be fixed by rollout training.
 
-## Round 5 (in progress): rollout fine-tuning
+## Round 5 results (rollout fine-tuning)
 
-- Fine-tuning from the one-step baseline and the two-step model, loss over 2, then 4, then 8 consecutive steps,
-  one epoch each, learning rate 1e-4. Expected: lower error growth, larger gain for the two-step model.
+- Fine-tuning on 2, 4 and 8 step rollouts (one epoch each, learning rate 1e-4) improves day-3 RMSE by 12-16% and the
+  skill horizon by 0.8-0.9 days: z500 6.1 -> 7.0 days, t850 5.6 -> 6.4, t2m 5.5 -> 6.3.
+- The two-step model gains slightly more but stays slightly behind (z500 horizon 6.9 vs 7.0 days).
+- Errors still rise toward both poles after fine-tuning, though lower than before. Literature: the fix is a spherical
+  representation (mesh as GraphCast and WeatherNext 2, spherical harmonics as SFNO, cubed sphere, reduced Gaussian
+  grids); transformers on lat-lon grids (ClimaX, Stormer) only use area-weighted losses. Left for v1.
+
+## Reorganization
+
+- Recipe = vars29_both + rollout fine-tuning, as defaults (`configs/train/pretrain.yaml`, `configs/train/rollout.yaml`).
+- Every trained model is listed in `experiments/experiments.yaml`, with a config per experiment listing only its
+  differences from the recipe. All experiments are evaluated together with the final protocol (10 days, ACC).
+- Results and explanations: `notebooks/results.ipynb`.
 
 ## Next
 

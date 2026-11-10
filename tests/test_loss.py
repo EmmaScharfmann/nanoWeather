@@ -23,14 +23,14 @@ def small_config(**kwargs):
 
 
 def test_pressure_weights_six_variables():
-    specs = expand_variables(load_yaml("configs/data.yaml"))
+    specs = expand_variables(load_yaml("experiments/configs/data_6vars.yaml"))
     weights = get_pressure_loss_weights(list(specs), specs, SURFACE_WEIGHTS)
     expected = np.array([1.0, 1.0, 1.0, 0.1, 0.1, 0.1])
     np.testing.assert_allclose(weights, expected / expected.mean())
 
 
 def test_pressure_weights_29_variables():
-    specs = expand_variables(load_yaml("configs/data_29vars.yaml"))
+    specs = expand_variables(load_yaml("configs/data.yaml"))
     variables = list(specs)
     weights = dict(zip(variables, get_pressure_loss_weights(variables, specs, SURFACE_WEIGHTS)))
     assert np.mean(list(weights.values())) == pytest.approx(1.0)

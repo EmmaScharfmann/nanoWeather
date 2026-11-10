@@ -1,8 +1,11 @@
-"""Scores persistence, climatology and trained models with latitude-weighted RMSE by lead time.
+"""Scores persistence, climatology and trained models: RMSE, ACC and skill horizon by lead time, to 10 days.
 
-uv run scripts/evaluate.py
-uv run scripts/evaluate.py --checkpoint checkpoints/v0/best checkpoints/epochs50/best
-uv run scripts/evaluate.py --checkpoint checkpoints/v0/best --num_steps 40 --output_dir results/10days
+    uv run scripts/evaluate.py --checkpoint checkpoints/rollout/best
+    uv run scripts/evaluate.py --experiments experiments/experiments.yaml --output_dir results/experiments
+    uv run scripts/evaluate.py --checkpoint checkpoints/rollout/best --set num_steps=20 baselines=false
+
+All models are scored on the variables and initializations they have in common. Settings are in
+configs/evaluation.yaml; --set overrides any of them.
 """
 
 import argparse
@@ -11,7 +14,7 @@ import os
 
 import numpy as np
 
-from nanoweather.config import load_yaml, parse_args_with_config
+from nanoweather.config import load_config, parse_args_with_config
 from nanoweather.data.datasets import WeatherData
 from nanoweather.evaluation.evaluate import (
     default_model_name,
@@ -29,35 +32,44 @@ from nanoweather.evaluation.forecasters import (
     persistence_forecaster,
 )
 from nanoweather.evaluation.metrics import skill_horizon_hours
+from nanoweather.experiments import load_experiments
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data_config", type=str)
-    parser.add_argument("--data_path", type=str, default=None, help="Defaults to `output_dir` of the data config.")
-    parser.add_argument("--output_dir", type=str)
-    parser.add_argument("--num_steps", type=int)
-    parser.add_argument("--init_start", type=str)
-    parser.add_argument("--init_end", type=str)
-    parser.add_argument("--checkpoint", type=str, nargs="+", default=[], help="Model directories or Hub repo ids.")
+    parser.add_argument("--checkpoint", type=str, nargs="+", default=None, help="Model directories or Hub repo ids.")
     parser.add_argument("--model_name", type=str, nargs="+", default=None, help="One name per checkpoint.")
-    parser.add_argument("--no_baselines", action="store_true", help="Skip persistence and climatology.")
+    parser.add_argument("--experiments", type=str, default=None, help="Registry: evaluate all its trained models.")
+    parser.add_argument("--output_dir", type=str, default=None)
     args = parse_args_with_config(parser, default_config="configs/evaluation.yaml")
     logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    data_config = load_yaml(args.data_config)
-    data_path = args.data_path or data_config["output_dir"]
-    data = WeatherData(data_path, split=args.split, store_name=data_config["store_name"])
+    checkpoints = list(args.checkpoint or [])
+    model_names = list(args.model_name or [default_model_name(checkpoint) for checkpoint in checkpoints])
+    if len(model_names) != len(checkpoints):
+        raise ValueError(f"Got {len(checkpoints)} checkpoints but {len(model_names)} model names.")
+    if args.experiments:
+        missing = []
+        for experiment in load_experiments(args.experiments):
+            if os.path.isdir(experiment.checkpoint):
+                checkpoints.append(experiment.checkpoint)
+                model_names.append(experiment.name)
+            else:
+                missing.append(experiment.name)
+        if missing:
+            logging.warning(f"No checkpoint for {', '.join(missing)}: not evaluated")
+
+    data_config = load_config(args.data_config)
+    data = WeatherData(
+        args.data_path or data_config["output_dir"], split=args.split, store_name=data_config["store_name"]
+    )
     climatology = ClimatologyForecaster(load_climatology(data.store_path, data.variables))
     forecasters = {}
-    if not args.no_baselines:
+    if args.baselines:
         forecasters["persistence"] = persistence_forecaster
         forecasters["climatology"] = climatology
-    model_names = args.model_name or [default_model_name(checkpoint) for checkpoint in args.checkpoint]
-    if len(model_names) != len(args.checkpoint):
-        raise ValueError(f"Got {len(args.checkpoint)} checkpoints but {len(model_names)} model names.")
-    for name, checkpoint in zip(model_names, args.checkpoint):
+    for name, checkpoint in zip(model_names, checkpoints):
         forecasters[name] = ModelForecaster(checkpoint, data.static)
 
     init_indices = get_init_indices(

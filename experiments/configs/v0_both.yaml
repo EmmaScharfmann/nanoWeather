@@ -1,0 +1,3 @@
+# v0 with tendency normalization and pressure loss weights.
+base: configs/train/pretrain.yaml
+data_config: experiments/configs/data_6vars.yaml

@@ -1,4 +1,5 @@
 data_config: configs/data.yaml
+data_path: null  # defaults to output_dir of the data config
 output_dir: results/diagnostics
 split: test
 init_start: "2020-01-01T00"

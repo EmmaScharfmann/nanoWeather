@@ -1,0 +1,4 @@
+# 29 variables, plain MSE on the normalized state.
+base: configs/train/pretrain.yaml
+tendency_normalization: false
+loss_weighting: uniform

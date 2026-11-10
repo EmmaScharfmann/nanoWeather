@@ -1,26 +1,31 @@
-output_dir: data/nanoweather_v0
-store_name: nanoweather_v0.zarr
+output_dir: data/era5_5.625deg_29vars
+store_name: era5.zarr
 time_chunk_size: 1464
 
 source:
   era5_url: https://storage.googleapis.com/weatherbench2/datasets/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr
   climatology_url: https://storage.googleapis.com/weatherbench2/datasets/era5-hourly-climatology/1990-2019_6h_64x32_equiangular_conservative.zarr
 
+# Each variable below at each level, named <short name><level>, e.g. u500
+pressure_levels: [250, 500, 700, 850, 925]
+pressure_level_variables:
+  z: geopotential
+  t: temperature
+  u: u_component_of_wind
+  v: v_component_of_wind
+  q: specific_humidity
+
 # Short name: source variable and pressure level in hPa (omitted for surface fields)
 variables:
-  z500: {source: geopotential, level: 500}
-  t850: {source: temperature, level: 850}
   t2m: {source: 2m_temperature}
   u10: {source: 10m_u_component_of_wind}
   v10: {source: 10m_v_component_of_wind}
   msl: {source: mean_sea_level_pressure}
 
-# Short name: source variable
 static_variables:
   land_sea_mask: land_sea_mask
   orography: geopotential_at_surface
 
-# Inclusive ranges. The test split runs 10 days into 2021 so 2020 initializations can be evaluated up to 10 days.
 splits:
   train: ["2000-01-01T00", "2015-12-31T18"]
   val: ["2016-01-01T00", "2016-12-31T18"]

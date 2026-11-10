@@ -251,7 +251,7 @@ def make_dataset(data: WeatherData, config: NanoWeatherConfig, num_rollout_steps
 
 def train(args: Namespace, data_config: dict):
     """
-    Trains a model as configured in `args` (see `configs/train/v0.yaml` and `configs/train/rollout.yaml`).
+    Trains a model as configured in `args` (see `configs/train/pretrain.yaml` and `configs/train/rollout.yaml`).
 
     Training runs in stages, one per entry of `args.rollout_steps`, each for `args.num_train_epochs` epochs with the
     loss averaged over that many consecutive forecast steps. `[1]` is one-step training. For rollout fine-tuning, start

@@ -1,0 +1,2 @@
+base: configs/train/pretrain.yaml
+num_input_steps: 2

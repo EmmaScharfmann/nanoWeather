@@ -1,6 +1,10 @@
 # nanoWeather
 
-Train and evaluate small global weather forecasting models.
+Train and evaluate small global weather forecasting models. v0 is a vision transformer of about 5M parameters on
+ERA5 at 5.625° (a 32 × 64 grid): it predicts the atmosphere 6 hours ahead and is run step by step to forecast 10 days.
+One training run takes minutes on a single GPU.
+
+Results and explanations are in `notebooks/results.ipynb`.
 
 ## Setup
 
@@ -8,99 +12,83 @@ Train and evaluate small global weather forecasting models.
 uv sync
 ```
 
+## The recipe
+
+```bash
+uv run scripts/prepare_data.py                                 # ERA5, 29 variables, from WeatherBench 2 (~11 GB)
+uv run scripts/train.py --overfit_one_batch                    # sanity check: the loss should keep decreasing
+uv run scripts/train.py                                        # step 1: one-step training   -> checkpoints/pretrain
+uv run scripts/train.py --config configs/train/rollout.yaml    # step 2: rollout fine-tuning -> checkpoints/rollout
+uv run scripts/evaluate.py --checkpoint checkpoints/rollout/best
+```
+
+- **Data**: z, t, u, v and specific humidity at 250, 500, 700, 850 and 925 hPa, plus 2 m temperature, 10 m wind and
+  mean sea level pressure. Training years 2000-2015, validation 2016, test 2020.
+- **Step 1**: the model predicts the change over 6 hours. The loss compares predicted and true changes, each variable
+  scaled by its typical 6-hour change, with weights proportional to pressure for upper-air levels and a higher weight
+  for 2 m temperature among surface variables.
+- **Step 2**: the model is fine-tuned on 2, then 4, then 8 consecutive steps, feeding its own predictions back as
+  inputs, so it learns to handle its own errors.
+- **Evaluation**: forecasts from 00 and 12 UTC every day of 2020, to 10 days, against ERA5. RMSE, anomaly correlation
+  (ACC), and skill horizon (lead time at which ACC falls below 0.6), compared with persistence and climatology.
+
+## Configs
+
+Every script reads a YAML config from `configs/`, and `--set key=value` overrides any setting:
+
+```bash
+uv run scripts/train.py --output_dir checkpoints/test --set num_train_epochs=5 learning_rate=1e-3
+```
+
+| Config | Used by |
+|---|---|
+| `configs/data.yaml` | `prepare_data.py`, and all scripts through `data_config` |
+| `configs/train/pretrain.yaml` | `train.py` (default), step 1 |
+| `configs/train/rollout.yaml` | `train.py --config ...`, step 2, inherits from `pretrain.yaml` |
+| `configs/evaluation.yaml` | `evaluate.py` |
+| `configs/diagnostics.yaml` | `diagnose.py`: bias maps, RMSE by latitude, spectra |
+| `configs/visualization.yaml` | `visualize.py`: maps and animation of one forecast |
+
+A config can start from another with `base: <path>` and list only what differs.
+
+## Experiments
+
+`experiments/experiments.yaml` lists every model trained in the v0 study, in two groups: the **progression** (each
+model adds one change to the previous one, from the original v0 to the recipe) and the **ablations** (one change
+compared with a reference). Each experiment has a small config in `experiments/configs/` listing what differs from the
+recipe.
+
+```bash
+uv run scripts/prepare_data.py --config experiments/configs/data_6vars.yaml   # dataset of the original v0
+uv run scripts/run_experiments.py --dry_run                                    # what would be trained
+uv run scripts/run_experiments.py                                              # trains missing checkpoints
+uv run scripts/evaluate.py --experiments experiments/experiments.yaml --output_dir results/experiments
+uv run scripts/diagnose.py --checkpoint checkpoints/v0/best
+uv run scripts/diagnose.py --checkpoint checkpoints/vars29_both_rollout/best
+uv run scripts/visualize.py --checkpoint checkpoints/vars29_both_rollout/best
+```
+
+Checkpoints go to `checkpoints/<experiment>/`, results to `results/`; neither is versioned. All experiments are
+evaluated together, on the variables and forecasts they have in common, so their scores are directly comparable.
+Then open `notebooks/results.ipynb`.
+
 ## Layout
 
 ```
-configs/                      YAML settings: data source and splits, training, evaluation, visualization
-scripts/                      command-line entry points
+configs/              settings of the recipe
+experiments/          the experiments of the v0 study: registry and configs
+notebooks/            results.ipynb (results and explanations), check_data.ipynb (checks of a prepared dataset)
+scripts/              command-line entry points
 src/nanoweather/
-    processing/               dataset preparation, normalization, time features
-    data/                     loading splits and training samples
-    models/                   model configuration and code
-    training/                 training loop
-    evaluation/               metrics, baselines, evaluation protocol
-    visualization/            forecast maps and animations
+    processing/       dataset preparation, normalization, time features
+    data/             loading splits and training samples
+    models/           model configuration and code
+    training/         training loop, loss weights
+    evaluation/       metrics, baselines, evaluation, diagnostics
+    visualization/    forecast maps and animations
+    experiments.py    reading the experiment registry
 tests/
 ```
-
-Loss options (`configs/train/v0.yaml`): `tendency_normalization` scales each variable's predicted change by its
-typical change over one time step (`diff_std / std`), so all variables contribute comparably to the loss.
-`loss_weighting: pressure` weights pressure-level variables in proportion to pressure, each source variable counting
-once in total, and surface variables by `surface_loss_weights`. Validation losses are not comparable between runs
-with different loss settings; compare models with `scripts/evaluate.py`.
-
-`num_input_steps` sets how many consecutive states the model takes as input (the current one and previous ones,
-one time step apart). Evaluation scores all models on the initializations that have enough previous steps for the
-model that needs the most, so results stay comparable.
-
-Rollout fine-tuning (`configs/train/rollout.yaml`) continues training a model from `init_from` with the loss
-averaged over several consecutive forecast steps, each step taking the previous prediction as input, with gradients
-through the whole rollout. Training runs in stages, one per entry of `rollout_steps` (e.g. `[2, 4, 8]`), each for
-`num_train_epochs` epochs. The val loss is computed over the largest number of steps, so it is comparable across
-stages. `gradient_checkpointing` reduces memory for long rollouts at the cost of extra compute.
-
-The evaluation reports RMSE and the anomaly correlation coefficient (ACC, correlation of forecast and truth anomalies
-from the climatology, area-weighted). The skill horizon is the lead time at which ACC falls below `acc_threshold`
-(0.6 by default, the usual limit of a useful forecast). Results are in `<output_dir>/<model>.json` and
-`<output_dir>/scores.png`.
-
-Every script reads its settings from a config in `configs/`. Any setting can be overridden on the command line, and
-`--config` selects another file.
-
-Two datasets are configured: `configs/data.yaml` (6 variables, v0) and `configs/data_29vars.yaml` (z, t, u, v and
-specific humidity at 5 pressure levels, plus 4 surface variables). Select one with `--data_config`. Evaluation scores
-all models on the variables they share, so 6-variable models can be compared with 29-variable models on the
-29-variable dataset.
-
-## Usage
-
-```bash
-# Data: ERA5 at 5.625 deg from WeatherBench 2 (configs/data.yaml)
-uv run scripts/prepare_data.py
-
-# Training (configs/train/v0.yaml). Run the overfit check first.
-uv run scripts/train.py --overfit_one_batch
-uv run scripts/train.py
-uv run scripts/train.py --output_dir checkpoints/epochs50 --num_train_epochs 50
-uv run scripts/train.py --tendency_normalization --loss_weighting pressure
-uv run scripts/train.py --num_input_steps 2
-uv run scripts/train.py --config configs/train/rollout.yaml --init_from checkpoints/vars29_both/best
-
-# Evaluation against persistence and climatology: RMSE, ACC and skill horizon (configs/evaluation.yaml)
-uv run scripts/evaluate.py --checkpoint checkpoints/v0/best
-uv run scripts/evaluate.py --checkpoint checkpoints/v0/best checkpoints/epochs50/best --output_dir results/compare
-
-# Bias maps, RMSE by latitude and zonal spectra over all initializations (configs/diagnostics.yaml)
-uv run scripts/diagnose.py --checkpoint checkpoints/v0/best
-
-# Forecast maps and animation (configs/visualization.yaml)
-uv run scripts/visualize.py --checkpoint checkpoints/v0/best --init_time 2020-01-15T00
-```
-
-## Using the library
-
-```python
-import torch
-
-from nanoweather.data.datasets import ForecastPairs, WeatherData
-from nanoweather.models.configuration_nanoweather import NanoWeatherConfig
-from nanoweather.models.modeling_nanoweather import NanoWeatherForWeatherForecasting
-
-
-data = WeatherData("data/nanoweather_v0", split="train", store_name="nanoweather_v0.zarr")
-loader = torch.utils.data.DataLoader(ForecastPairs(data), batch_size=4, shuffle=True)
-batch = next(iter(loader))
-static = torch.from_numpy(data.static)
-
-model = NanoWeatherForWeatherForecasting(NanoWeatherConfig())
-output = model(**batch, static=static)
-forecast = model.rollout(batch["states"], static=static, num_steps=20)
-forecast = data.feature_extractor.denormalize(forecast)
-```
-
-- `states`: the 6 variables on the 32x64 grid at time t, normalized. `labels`: the same one time step later.
-- `static`: land-sea mask and orography, shared by all samples.
-- Model inputs and outputs are normalized; `feature_extractor.denormalize` converts back to physical units.
 
 ## Tests
 
@@ -108,4 +96,4 @@ forecast = data.feature_extractor.denormalize(forecast)
 uv run pytest
 ```
 
-Findings and results are logged in `notes.md`.
+Decisions and findings are logged in `notes.md`.

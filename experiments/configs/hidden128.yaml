@@ -1,0 +1,3 @@
+base: experiments/configs/v0.yaml
+hidden_size: 128
+intermediate_size: 512

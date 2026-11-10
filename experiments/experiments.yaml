@@ -1,0 +1,77 @@
+# Every model trained for the v0 study. Checkpoints are in checkpoints/<name>/best.
+# Train the missing ones with `uv run scripts/run_experiments.py`.
+
+# Each step adds one change to the previous one.
+progression:
+  - name: v0
+    config: experiments/configs/v0.yaml
+    description: 6 variables, MSE on the normalized state, one-step training
+  - name: vars29
+    config: experiments/configs/vars29.yaml
+    description: 29 variables (z, t, u, v, q at 5 levels and 4 surface variables)
+  - name: vars29_tendency
+    config: experiments/configs/vars29_tendency.yaml
+    description: + loss on the change over one step, normalized per variable
+  - name: vars29_both
+    config: configs/train/pretrain.yaml
+    description: + loss weights proportional to pressure (recipe, step 1)
+  - name: vars29_both_rollout
+    config: configs/train/rollout.yaml
+    init_from: vars29_both
+    description: + fine-tuning on 2, 4 and 8 step rollouts (recipe, step 2)
+
+# One change compared with the experiment in compare_to.
+ablations:
+  - name: epochs50
+    config: experiments/configs/epochs50.yaml
+    compare_to: v0
+    description: 50 epochs instead of 20
+  - name: epochs100
+    config: experiments/configs/epochs100.yaml
+    compare_to: v0
+    description: 100 epochs instead of 20
+  - name: layers3
+    config: experiments/configs/layers3.yaml
+    compare_to: v0
+    description: 3 layers instead of 6
+  - name: layers12
+    config: experiments/configs/layers12.yaml
+    compare_to: v0
+    description: 12 layers instead of 6
+  - name: hidden128
+    config: experiments/configs/hidden128.yaml
+    compare_to: v0
+    description: hidden size 128 instead of 256
+  - name: hidden384
+    config: experiments/configs/hidden384.yaml
+    compare_to: v0
+    description: hidden size 384 instead of 256
+  - name: time_features
+    config: experiments/configs/time_features.yaml
+    compare_to: v0
+    description: sunlight and time of year as extra inputs
+  - name: patch1
+    config: experiments/configs/patch1.yaml
+    compare_to: v0
+    description: patches of 1 grid point instead of 2x2
+  - name: v0_both
+    config: experiments/configs/v0_both.yaml
+    compare_to: v0
+    description: tendency normalization and pressure weights with 6 variables
+  - name: vars29_pressure
+    config: experiments/configs/vars29_pressure.yaml
+    compare_to: vars29
+    description: pressure weights without tendency normalization
+  - name: vars29_both_seed1
+    config: experiments/configs/vars29_both_seed1.yaml
+    compare_to: vars29_both
+    description: same as vars29_both, another random seed
+  - name: vars29_both_2steps
+    config: experiments/configs/vars29_both_2steps.yaml
+    compare_to: vars29_both
+    description: two input time steps (t - 6h and t)
+  - name: vars29_both_2steps_rollout
+    config: configs/train/rollout.yaml
+    init_from: vars29_both_2steps
+    compare_to: vars29_both_rollout
+    description: two input time steps, after rollout fine-tuning

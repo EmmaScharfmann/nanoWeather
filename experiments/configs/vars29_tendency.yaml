@@ -1,0 +1,2 @@
+base: configs/train/pretrain.yaml
+loss_weighting: uniform

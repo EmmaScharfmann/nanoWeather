@@ -1,0 +1,2 @@
+base: experiments/configs/v0.yaml
+num_hidden_layers: 3

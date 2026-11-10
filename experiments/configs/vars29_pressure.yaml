@@ -1,0 +1,2 @@
+base: configs/train/pretrain.yaml
+tendency_normalization: false

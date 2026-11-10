@@ -1,0 +1,5 @@
+# The original v0: 6 variables, plain MSE on the normalized state.
+base: configs/train/pretrain.yaml
+data_config: experiments/configs/data_6vars.yaml
+tendency_normalization: false
+loss_weighting: uniform

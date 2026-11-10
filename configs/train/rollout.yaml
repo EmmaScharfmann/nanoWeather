@@ -1,22 +1,10 @@
-# Rollout fine-tuning of a trained model: architecture, inputs and loss settings come from init_from.
-data_config: configs/data_29vars.yaml
+# Step 2 of the recipe: fine-tuning on multi-step rollouts, from the model of step 1. Architecture, inputs and loss
+# settings come from init_from.
+base: configs/train/pretrain.yaml
 output_dir: checkpoints/rollout
-init_from: checkpoints/vars29_both/best
+init_from: checkpoints/pretrain/best
 
-# One stage per entry, with the loss averaged over that many consecutive forecast steps
 rollout_steps: [2, 4, 8]
 num_train_epochs: 1  # per stage
-gradient_checkpointing: false
-
-batch_size: 32
-eval_batch_size: 128
 learning_rate: 1.0e-4
-weight_decay: 0.05
 warmup_steps: 100
-max_grad_norm: 1.0
-bf16: true
-compile: false
-
-overfit_steps: 1000
-logging_steps: 50
-seed: 42

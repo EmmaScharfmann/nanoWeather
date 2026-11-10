@@ -15,6 +15,8 @@ from ..data.datasets import ForecastPairs, WeatherData
 from ..models.configuration_nanoweather import NanoWeatherConfig
 from ..models.modeling_nanoweather import NanoWeatherForWeatherForecasting
 from ..processing.feature_extraction_nanoweather import NUM_TIME_FEATURES
+from ..processing.prepare import expand_variables
+from .loss_weights import get_pressure_loss_weights
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +85,32 @@ def evaluate_loss(model, dataloader, static, device, use_bf16: bool) -> float:
     return total_loss / num_samples
 
 
+def get_loss_settings(args: Namespace, data_config: dict, feature_extractor) -> dict:
+    """`residual_scale` and `loss_weights` for the model config, from the training arguments."""
+    variables = feature_extractor.variables
+    residual_scale = None
+    if args.tendency_normalization:
+        residual_scale = (np.array(feature_extractor.diff_std) / np.array(feature_extractor.std)).tolist()
+    if args.loss_weighting == "uniform":
+        loss_weights = None
+    elif args.loss_weighting == "pressure":
+        specs = expand_variables(data_config)
+        loss_weights = get_pressure_loss_weights(variables, specs, args.surface_loss_weights or {})
+    else:
+        raise ValueError(f"Unknown loss_weighting {args.loss_weighting!r}, expected 'uniform' or 'pressure'.")
+    return {"residual_scale": residual_scale, "loss_weights": loss_weights}
+
+
+def log_loss_settings(variables: list[str], settings: dict):
+    if settings["loss_weights"] is not None:
+        logger.info("Loss weights: " + ", ".join(f"{n} {w:.3f}" for n, w in zip(variables, settings["loss_weights"])))
+    if settings["residual_scale"] is not None:
+        logger.info(
+            "Residual scale (diff_std / std): "
+            + ", ".join(f"{n} {r:.3f}" for n, r in zip(variables, settings["residual_scale"]))
+        )
+
+
 def save_checkpoint(model, feature_extractor, output_dir: str):
     """Saves the model and its feature extractor, unwrapping a compiled model first."""
     getattr(model, "_orig_mod", model).save_pretrained(output_dir)
@@ -133,6 +161,8 @@ def train(args: Namespace, data_config: dict):
     train_pairs = ForecastPairs(train_data, lead_steps=1, time_features=args.use_time_features)
     static = torch.from_numpy(train_data.static).to(device)
 
+    loss_settings = get_loss_settings(args, data_config, train_data.feature_extractor)
+    log_loss_settings(train_data.variables, loss_settings)
     config = NanoWeatherConfig(
         variables=train_data.variables,
         num_static_channels=static.shape[0],
@@ -143,6 +173,7 @@ def train(args: Namespace, data_config: dict):
         num_hidden_layers=args.num_hidden_layers,
         num_attention_heads=args.num_attention_heads,
         intermediate_size=args.intermediate_size,
+        **loss_settings,
     )
     model = NanoWeatherForWeatherForecasting(config).to(device)
     logger.info(f"Model with {model.num_parameters() / 1e6:.2f}M parameters")

@@ -23,6 +23,12 @@ src/nanoweather/
 tests/
 ```
 
+Loss options (`configs/train/v0.yaml`): `tendency_normalization` scales each variable's predicted change by its
+typical change over one time step (`diff_std / std`), so all variables contribute comparably to the loss.
+`loss_weighting: pressure` weights pressure-level variables in proportion to pressure, each source variable counting
+once in total, and surface variables by `surface_loss_weights`. Validation losses are not comparable between runs
+with different loss settings; compare models with `scripts/evaluate.py`.
+
 Every script reads its settings from a config in `configs/`. Any setting can be overridden on the command line, and
 `--config` selects another file.
 
@@ -41,6 +47,7 @@ uv run scripts/prepare_data.py
 uv run scripts/train.py --overfit_one_batch
 uv run scripts/train.py
 uv run scripts/train.py --output_dir checkpoints/epochs50 --num_train_epochs 50
+uv run scripts/train.py --tendency_normalization --loss_weighting pressure
 
 # Evaluation against persistence and climatology (configs/evaluation.yaml)
 uv run scripts/evaluate.py --checkpoint checkpoints/v0/best

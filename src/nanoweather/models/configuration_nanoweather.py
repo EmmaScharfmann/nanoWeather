@@ -47,6 +47,13 @@ class NanoWeatherConfig:
         predict_residual (`bool`, *optional*, defaults to `True`):
             Whether the model predicts the change over one time step, added to the input state, rather than the next
             state directly. The output head then starts at zero, so the untrained model is the persistence forecast.
+        residual_scale (`list[float]`, *optional*):
+            Per variable, the standard deviation of the change over one time step divided by the standard deviation
+            of the state (`diff_std / std`). When set, the output of the head is multiplied by it before being added to
+            the input state, so the head predicts changes of unit variance for every variable, and the loss is
+            computed on changes in these units. Requires `predict_residual`. `None` disables it.
+        loss_weights (`list[float]`, *optional*):
+            Weight of each variable in the loss, normalized to mean 1. `None` weights all variables equally.
         attn_implementation (`str`, *optional*, defaults to `"sdpa"`):
             Attention backend, `"sdpa"` (`torch.nn.functional.scaled_dot_product_attention`) or `"eager"`.
 
@@ -79,6 +86,8 @@ class NanoWeatherConfig:
         layer_norm_eps: float = 1e-6,
         initializer_range: float = 0.02,
         predict_residual: bool = True,
+        residual_scale: list[float] | None = None,
+        loss_weights: list[float] | None = None,
         attn_implementation: str = "sdpa",
         **kwargs,
     ):
@@ -96,6 +105,8 @@ class NanoWeatherConfig:
         self.layer_norm_eps = layer_norm_eps
         self.initializer_range = initializer_range
         self.predict_residual = predict_residual
+        self.residual_scale = list(residual_scale) if residual_scale is not None else None
+        self.loss_weights = list(loss_weights) if loss_weights is not None else None
         self.attn_implementation = attn_implementation
 
         if any(size % patch_size != 0 for size in self.grid_size):
@@ -106,6 +117,13 @@ class NanoWeatherConfig:
             raise ValueError(
                 f"`hidden_size` ({hidden_size}) must be divisible by `num_attention_heads` ({num_attention_heads})."
             )
+        for name, values in (("residual_scale", self.residual_scale), ("loss_weights", self.loss_weights)):
+            if values is not None and len(values) != len(self.variables):
+                raise ValueError(
+                    f"`{name}` must have one value per variable ({len(self.variables)}), got {len(values)}."
+                )
+        if self.residual_scale is not None and not predict_residual:
+            raise ValueError("`residual_scale` requires `predict_residual=True`.")
         if attn_implementation not in ("sdpa", "eager"):
             raise ValueError(f"`attn_implementation` must be `'sdpa'` or `'eager'`, got {attn_implementation!r}.")
         for key in kwargs:

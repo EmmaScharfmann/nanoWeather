@@ -28,6 +28,8 @@ def main():
     parser.add_argument("--num_attention_heads", type=int)
     parser.add_argument("--intermediate_size", type=int)
     parser.add_argument("--use_time_features", type=str_to_bool, nargs="?", const=True)
+    parser.add_argument("--tendency_normalization", type=str_to_bool, nargs="?", const=True)
+    parser.add_argument("--loss_weighting", type=str, choices=["uniform", "pressure"])
     parser.add_argument("--num_train_epochs", type=int)
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--eval_batch_size", type=int)

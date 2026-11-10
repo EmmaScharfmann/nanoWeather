@@ -9,6 +9,11 @@ num_attention_heads: 8
 intermediate_size: 1024
 use_time_features: false
 
+# Loss
+tendency_normalization: false
+loss_weighting: uniform
+surface_loss_weights: {t2m: 1.0, u10: 0.1, v10: 0.1, msl: 0.1}
+
 # Optimization
 num_train_epochs: 20
 batch_size: 32

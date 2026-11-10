@@ -91,6 +91,25 @@ Different test years (2017-2018), so only indicative.
 - 29 variables: z, t, u, v, q at 250/500/700/850/925 hPa plus t2m, u10, v10, msl. Each source chunk holds all 13
   levels and is downloaded once whatever the number of levels selected (~11 GB in total).
 
+## Round 2 results (29 variables, patch size, diagnostics)
+
+- 29 variables: z500 better by 14-28%, with a lower error growth rate (first change of slope so far). t2m worse at
+  all leads (+25-30% at day 1), worst near the poles (warm drift up to +7.5 K over Antarctica at day 5). t850 worse up
+  to day 2, then better.
+- Patch size 1: no change in RMSE compared with v0.
+- A first set of 29-variable diagnostics was inconsistent with the evaluation (RMSE several times too high, row
+  stripes); a re-run was consistent. Cause not identified, not reproduced.
+- Comparison with GraphCast, Stormer and WeatherNext 2: all normalize the predicted change per variable by the
+  spread of its change over one step, weight variables in the loss (pressure-proportional for levels; GraphCast uses
+  t2m 1.0 and other surface variables 0.1), and train on multi-step rollouts. GraphCast and WeatherNext 2 take two
+  input time steps. We had none of these.
+
+## Round 3 (in progress): loss
+
+- Tendency normalization (`residual_scale = diff_std / std`) and pressure loss weights, separately and together,
+  on 29 variables; both together on 6 variables. With tendency normalization, the overfit check starts at a loss
+  of about 1 (persistence error in units of the typical change).
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

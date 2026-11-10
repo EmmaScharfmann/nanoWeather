@@ -47,7 +47,8 @@ class NanoWeatherForecastOutput:
 
     Args:
         loss (`torch.FloatTensor` of shape `()`, *optional*, returned when `labels` is provided):
-            Latitude-weighted mean squared error between `prediction` and `labels`, in normalized units.
+            Latitude-weighted mean squared error between `prediction` and `labels`, weighted per variable by
+            `config.loss_weights`, in units of `config.residual_scale` if set, otherwise in normalized units.
         prediction (`torch.FloatTensor` of shape `(batch_size, num_variables, latitude, longitude)`):
             Predicted state one time step ahead, normalized.
         last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_patches, hidden_size)`):
@@ -66,9 +67,30 @@ def get_latitude_weights(num_latitudes: int) -> torch.Tensor:
     return (weights / weights.mean()).float()
 
 
-def latitude_weighted_mse(prediction: torch.Tensor, target: torch.Tensor, latitude_weights: torch.Tensor):
-    """Mean squared error with each latitude row weighted by its area. Weights have mean 1."""
-    return ((prediction - target) ** 2 * latitude_weights[:, None]).mean()
+def latitude_weighted_mse(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    latitude_weights: torch.Tensor,
+    variable_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    Mean squared error with each latitude row weighted by its area, and each variable by `variable_weights`.
+
+    Args:
+        prediction (`torch.Tensor` of shape `(batch_size, num_variables, latitude, longitude)`):
+            Prediction.
+        target (`torch.Tensor` of shape `(batch_size, num_variables, latitude, longitude)`):
+            Target.
+        latitude_weights (`torch.Tensor` of shape `(latitude,)`):
+            Area weights with mean 1.
+        variable_weights (`torch.Tensor` of shape `(num_variables,)`, *optional*):
+            Weights with mean 1. All variables count equally if not given.
+    """
+    squared_error = (prediction - target) ** 2 * latitude_weights[:, None]
+    per_variable = squared_error.mean(dim=(0, 2, 3))
+    if variable_weights is not None:
+        per_variable = per_variable * variable_weights
+    return per_variable.mean()
 
 
 def eager_attention_forward(
@@ -299,10 +321,16 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
         self.model = NanoWeatherModel(config)
         self.head = nn.Linear(config.hidden_size, config.num_variables * config.patch_size**2)
         self.register_buffer("latitude_weights", get_latitude_weights(config.grid_size[0]), persistent=False)
+        self.register_buffer("residual_scale", self._per_variable_buffer(config.residual_scale), persistent=False)
+        self.register_buffer("variable_weights", self._per_variable_buffer(config.loss_weights), persistent=False)
         self.post_init()
         if config.predict_residual:
             nn.init.zeros_(self.head.weight)
             nn.init.zeros_(self.head.bias)
+
+    @staticmethod
+    def _per_variable_buffer(values: list[float] | None) -> torch.Tensor | None:
+        return torch.tensor(values, dtype=torch.float32) if values is not None else None
 
     def unpatchify(self, patches: torch.Tensor) -> torch.Tensor:
         """(batch_size, num_patches, num_variables * patch_size**2) -> (batch_size, num_variables, latitude, longitude)"""
@@ -330,7 +358,8 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
             time_features (`torch.FloatTensor` of shape `(batch_size, num_time_features, latitude, longitude)`, *optional*):
                 Time features at the input time. Required when `config.num_time_features > 0`.
             labels (`torch.FloatTensor` of shape `(batch_size, num_variables, latitude, longitude)`, *optional*):
-                Normalized state one time step after `states`. If given, the latitude-weighted MSE is returned as `loss`.
+                Normalized state one time step after `states`. If given, the loss is returned (see `latitude_weighted_mse`,
+                `config.residual_scale` and `config.loss_weights`).
         """
         inputs = [states]
         if self.config.num_static_channels > 0:
@@ -349,12 +378,20 @@ class NanoWeatherForWeatherForecasting(NanoWeatherPreTrainedModel):
 
         last_hidden_state = self.model(pixel_values).last_hidden_state
         prediction = self.unpatchify(self.head(last_hidden_state))
+        if self.residual_scale is not None:
+            prediction = prediction * self.residual_scale[:, None, None].to(prediction.dtype)
         if self.config.predict_residual:
             prediction = states + prediction
 
         loss = None
         if labels is not None:
-            loss = latitude_weighted_mse(prediction.float(), labels.float(), self.latitude_weights)
+            error_scale = self.residual_scale[:, None, None] if self.residual_scale is not None else 1.0
+            loss = latitude_weighted_mse(
+                prediction.float() / error_scale,
+                labels.float() / error_scale,
+                self.latitude_weights,
+                self.variable_weights,
+            )
 
         return NanoWeatherForecastOutput(loss=loss, prediction=prediction, last_hidden_state=last_hidden_state)
 

@@ -17,6 +17,7 @@ dependencies = [
     "safetensors>=0.4",
     "matplotlib>=3.8",
     "pyyaml>=6.0",
+    "scipy>=1.11",  # nearest-neighbor search for the mesh model
 ]
 
 [dependency-groups]

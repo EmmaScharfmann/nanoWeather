@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 import xarray as xr
 
-from ..models.modeling_nanoweather import NanoWeatherForWeatherForecasting
+from ..models.auto import load_model
 from ..processing.feature_extraction_nanoweather import NanoWeatherFeatureExtractor, get_time_features
 
 
@@ -66,7 +66,7 @@ class ModelForecaster:
 
     def __init__(self, checkpoint: str | os.PathLike, static: np.ndarray, device: str | None = None):
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        self.model = NanoWeatherForWeatherForecasting.from_pretrained(checkpoint).to(self.device)
+        self.model = load_model(checkpoint).to(self.device)
         self.feature_extractor = NanoWeatherFeatureExtractor.from_pretrained(checkpoint, repo_type="model")
         self.variables = self.model.config.variables
         self.num_input_steps = self.model.config.num_input_steps

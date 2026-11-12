@@ -4,8 +4,14 @@ data_path: null  # defaults to output_dir of the data config
 output_dir: checkpoints/pretrain
 push_to_hub: null
 
-# Model
-patch_size: 2
+# Model: "vit" (patches of the latitude/longitude grid) or "mesh" (icosahedral mesh)
+architecture: vit
+patch_size: 2  # vit
+mesh_refinement: 3  # mesh: 642 nodes
+encoder_num_neighbors: 4  # mesh: nodes each grid point sends to
+processor_num_neighbors: 16  # mesh: nodes each node attends to
+decoder_num_neighbors: 4  # mesh: nodes each grid point reads from
+dense_attention_max_pairs: 1000000  # mesh: full masked attention below this many pairs, see benchmark_models.py
 hidden_size: 256
 num_hidden_layers: 6
 num_attention_heads: 8

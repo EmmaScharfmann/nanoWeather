@@ -32,6 +32,25 @@ uv run scripts/evaluate.py --checkpoint checkpoints/rollout/best
 - **Evaluation**: forecasts from 00 and 12 UTC every day of 2020, to 10 days, against ERA5. RMSE, anomaly correlation
   (ACC), and skill horizon (lead time at which ACC falls below 0.6), compared with persistence and climatology.
 
+## Architectures
+
+Set `architecture` in the training config:
+
+- `vit` (default): a vision transformer on 2 × 2 patches of the latitude/longitude grid, with attention over all
+  patches.
+- `mesh`: encode-process-decode on an icosahedral mesh, as in GraphCast and WeatherNext 2. Grid inputs are encoded
+  onto mesh nodes spread evenly over the sphere, processed by transformer layers where each node attends to its
+  nearest nodes, and decoded back to the grid. The processor no longer sees the crowding of the grid near the poles.
+  Inputs and outputs stay on the grid, so data, evaluation and diagnostics are unchanged.
+
+The mesh model computes attention over neighbors only (`attn_implementation: sparse`) or over all pairs with a mask
+(`dense`), whichever is faster for each part of the model (`auto`, the default). The crossover depends on the
+hardware: `uv run scripts/benchmark_models.py` measures both on your machine.
+
+```bash
+uv run scripts/train.py --config experiments/configs/vars29_mesh.yaml --output_dir checkpoints/vars29_mesh
+```
+
 ## Configs
 
 Every script reads a YAML config from `configs/`, and `--set key=value` overrides any setting:
@@ -82,7 +101,7 @@ scripts/              command-line entry points
 src/nanoweather/
     processing/       dataset preparation, normalization, time features
     data/             loading splits and training samples
-    models/           model configuration and code
+    models/           model configurations and code: vit (modeling_nanoweather.py), mesh, shared code, auto loading
     training/         training loop, loss weights
     evaluation/       metrics, baselines, evaluation, diagnostics
     visualization/    forecast maps and animations

@@ -13,8 +13,9 @@ import torch
 from torch.utils.checkpoint import checkpoint
 
 from ..data.datasets import ForecastPairs, WeatherData
+from ..models.auto import load_model, model_class_for
 from ..models.configuration_nanoweather import NanoWeatherConfig
-from ..models.modeling_nanoweather import NanoWeatherForWeatherForecasting
+from ..models.configuration_nanoweather_mesh import NanoWeatherMeshConfig
 from ..processing.feature_extraction_nanoweather import NUM_TIME_FEATURES
 from ..processing.prepare import expand_variables
 from .loss_weights import get_pressure_loss_weights
@@ -66,7 +67,7 @@ def rollout_loss(model, batch: dict[str, torch.Tensor], static: torch.Tensor, gr
     step (`labels` of shape `(batch_size, num_variables, latitude, longitude)`), this is the one-step loss.
 
     Args:
-        model (`NanoWeatherForWeatherForecasting`):
+        model (`NanoWeatherForecastingModel`):
             Model to train.
         batch (`dict[str, torch.Tensor]`):
             Sample from `ForecastPairs`, with `labels` of shape `(batch_size, num_rollout_steps, ...)` for a rollout.
@@ -209,35 +210,50 @@ def build_model(args: Namespace, data_config: dict, train_data: WeatherData, num
     """
     A new model configured from `args`, or with `args.init_from` the trained model to fine-tune.
 
-    When fine-tuning, the architecture, inputs and loss settings come from the checkpoint, and the corresponding
-    arguments are ignored.
+    `args.architecture` is `"vit"` (patches of the latitude/longitude grid) or `"mesh"` (encode-process-decode on an
+    icosahedral mesh). When fine-tuning, the architecture, inputs and loss settings come from the checkpoint, and the
+    corresponding arguments are ignored.
     """
     if args.init_from:
-        model = NanoWeatherForWeatherForecasting.from_pretrained(args.init_from)
+        model = load_model(args.init_from)
         if model.config.variables != train_data.variables:
             raise ValueError(f"The model in {args.init_from} was trained on other variables than this dataset.")
         logger.info(f"Fine-tuning {args.init_from}; model and loss settings come from its config")
         return model.train()
 
-    missing = [name for name in ("patch_size", "hidden_size", "num_hidden_layers") if getattr(args, name) is None]
+    missing = [
+        name for name in ("hidden_size", "num_hidden_layers", "architecture") if getattr(args, name, None) is None
+    ]
     if missing:
         raise ValueError(f"Set {', '.join(missing)} to train a new model, or init_from to fine-tune a trained one.")
     loss_settings = get_loss_settings(args, data_config, train_data.feature_extractor)
     log_loss_settings(train_data.variables, loss_settings)
-    config = NanoWeatherConfig(
-        variables=train_data.variables,
-        num_input_steps=args.num_input_steps,
-        num_static_channels=num_static_channels,
-        num_time_features=NUM_TIME_FEATURES if args.use_time_features else 0,
-        grid_size=train_data.states.shape[-2:],
-        patch_size=args.patch_size,
-        hidden_size=args.hidden_size,
-        num_hidden_layers=args.num_hidden_layers,
-        num_attention_heads=args.num_attention_heads,
-        intermediate_size=args.intermediate_size,
+    common = {
+        "variables": train_data.variables,
+        "num_input_steps": args.num_input_steps,
+        "num_static_channels": num_static_channels,
+        "num_time_features": NUM_TIME_FEATURES if args.use_time_features else 0,
+        "grid_size": train_data.states.shape[-2:],
+        "hidden_size": args.hidden_size,
+        "num_hidden_layers": args.num_hidden_layers,
+        "num_attention_heads": args.num_attention_heads,
+        "intermediate_size": args.intermediate_size,
         **loss_settings,
-    )
-    return NanoWeatherForWeatherForecasting(config)
+    }
+    if args.architecture == "vit":
+        config = NanoWeatherConfig(patch_size=args.patch_size, **common)
+    elif args.architecture == "mesh":
+        config = NanoWeatherMeshConfig(
+            mesh_refinement=args.mesh_refinement,
+            encoder_num_neighbors=args.encoder_num_neighbors,
+            processor_num_neighbors=args.processor_num_neighbors,
+            decoder_num_neighbors=args.decoder_num_neighbors,
+            dense_attention_max_pairs=args.dense_attention_max_pairs,
+            **common,
+        )
+    else:
+        raise ValueError(f"Unknown architecture {args.architecture!r}, expected 'vit' or 'mesh'.")
+    return model_class_for(config.model_type)(config)
 
 
 def make_dataset(data: WeatherData, config: NanoWeatherConfig, num_rollout_steps: int) -> ForecastPairs:
@@ -361,7 +377,7 @@ def train(args: Namespace, data_config: dict):
     logger.info(f"Best val loss {best_val_loss:.5f}, checkpoint in {best_dir}")
 
     if args.push_to_hub:
-        best_model = NanoWeatherForWeatherForecasting.from_pretrained(best_dir)
+        best_model = load_model(best_dir)
         best_model.push_to_hub(args.push_to_hub)
         from huggingface_hub import upload_file
 

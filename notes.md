@@ -151,6 +151,27 @@ Different test years (2017-2018), so only indicative.
   differences from the recipe. All experiments are evaluated together with the final protocol (10 days, ACC).
 - Results and explanations: `notebooks/results.ipynb`.
 
+## Mesh architecture (in progress)
+
+- Encode-process-decode on an icosahedral mesh: encoder (each grid point sends to its 4 nearest nodes, each node
+  attends over what it receives, weighted by grid-cell area), processor (6 layers, each node attends to its 16
+  nearest nodes), decoder (each grid point attends to its 4 nearest nodes). Learned bias from each neighbor's relative
+  position (east, north, up, distance). No learned absolute positions. 6.4M parameters at refinement 3 (642 nodes).
+- The mesh and neighbor lists are rebuilt from the config at load time, not saved in checkpoints.
+- Encoder design: first tried each node attending to all grid points within a radius. Polar nodes then receive a whole
+  polar row (64 points at 5.625 deg, up to 960 at 1.5 deg), and padding every node to that size wastes most memory.
+  Reversed to grid points sending to fixed numbers of nodes, with a softmax per node over an edge list (no padding).
+- Attention cost (CPU, batch 8, attention only, per processor layer): at 642 nodes, masked full attention 215 ms vs
+  neighbor gathering 544 ms; at 2562 nodes, gathering 2069 ms vs full 2655 ms (and full attention over all pairs of
+  scores runs out of memory). The crossover depends on hardware: `attn_implementation: auto` with a threshold, to be
+  set from `scripts/benchmark_models.py` on the GPU.
+- Implementation details that mattered on CPU: advanced indexing (`x[:, index]`) has a slow backward (index_put with
+  accumulation); `index_select` (backward index_add) and gathering keys and values together cut the step time by
+  about 20%. Writing a learned bias into a mask by indexing has the same slow backward; `scatter` avoids it.
+- Full model, CPU, batch 8: ViT ~1.7 s per step; mesh at 642 nodes ~6-7 s. The difference is mostly structural: the
+  mesh model processes 642 nodes plus 2048 grid points (encoder and decoder at full width on every grid point), the
+  ViT 512 patches. CPU timings here varied by +-10% between identical runs; GPU numbers needed.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

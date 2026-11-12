@@ -75,3 +75,12 @@ ablations:
     init_from: vars29_both_2steps
     compare_to: vars29_both_rollout
     description: two input time steps, after rollout fine-tuning
+  - name: vars29_mesh
+    config: experiments/configs/vars29_mesh.yaml
+    compare_to: vars29_both
+    description: icosahedral mesh (642 nodes) instead of 2x2 patches of the grid
+  - name: vars29_mesh_rollout
+    config: configs/train/rollout.yaml
+    init_from: vars29_mesh
+    compare_to: vars29_both_rollout
+    description: icosahedral mesh, after rollout fine-tuning

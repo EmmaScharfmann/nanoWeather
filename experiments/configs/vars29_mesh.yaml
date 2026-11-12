@@ -1,0 +1,3 @@
+# The recipe's first step, on an icosahedral mesh instead of patches of the latitude/longitude grid.
+base: configs/train/pretrain.yaml
+architecture: mesh

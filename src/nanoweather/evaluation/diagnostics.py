@@ -153,3 +153,19 @@ def plot_diagnostics(diagnostics: dict, variables: list[str], latitude, longitud
     axes[0, 0].legend()
     figures["spectrum"] = fig
     return figures
+
+
+def statistics_by_latitude(data, init_indices: np.ndarray, variables: list[str]) -> dict[str, np.ndarray]:
+    """
+    Spread of the state and of its change over one time step at each latitude, over the given initializations.
+
+    Returns:
+        `dict` with `state_std` and `change_std`, each `(num_variables, latitude)`, in physical units.
+    """
+    channels = [data.variables.index(name) for name in variables]
+    states = data.states[init_indices][:, channels].astype(np.float64)
+    changes = data.states[init_indices + 1][:, channels] - states
+    return {
+        "state_std": states.std(axis=(0, 3)),
+        "change_std": changes.std(axis=(0, 3)),
+    }

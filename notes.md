@@ -172,6 +172,18 @@ Different test years (2017-2018), so only indicative.
   mesh model processes 642 nodes plus 2048 grid points (encoder and decoder at full width on every grid point), the
   ViT 512 patches. CPU timings here varied by +-10% between identical runs; GPU numbers needed.
 
+## Mesh results and the poles
+
+- vars29_mesh slightly better than vars29_both before rollout fine-tuning (z500 skill horizon ~6.3 vs 6.1 days);
+  after fine-tuning, mesh and ViT are essentially identical (~7.0 days).
+- Errors still rise toward both poles with the mesh, with the same shape and size as the ViT. The polar-row noise in
+  t850 over Antarctica and the cold drift on the Arctic row are still there. The lat-lon grid in the processor was not
+  the main cause.
+- The rise is already present at day 1 and continues up to the last row, unlike variability, which peaks in the storm
+  tracks: natural variability is not the explanation. Next: `scripts/diagnose_latitude.py` (one-step error against
+  persistence by latitude, on training and test years; spread of state and change by latitude against the global
+  normalization; loss weight per row).
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

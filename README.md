@@ -84,6 +84,7 @@ uv run scripts/run_experiments.py                                              #
 uv run scripts/evaluate.py --experiments experiments/experiments.yaml --output_dir results/experiments
 uv run scripts/diagnose.py --checkpoint checkpoints/v0/best
 uv run scripts/diagnose.py --checkpoint checkpoints/vars29_both_rollout/best
+uv run scripts/diagnose_latitude.py --checkpoint checkpoints/vars29_both_rollout/best checkpoints/vars29_mesh_rollout/best
 uv run scripts/visualize.py --checkpoint checkpoints/vars29_both_rollout/best
 ```
 

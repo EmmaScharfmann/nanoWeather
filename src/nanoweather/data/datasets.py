@@ -35,6 +35,8 @@ class WeatherData:
             Name of the Zarr store in `data_path`.
         feature_extractor (`NanoWeatherFeatureExtractor`, *optional*):
             Normalization to apply. Loaded from `data_path` if not given.
+        time_indices (`np.ndarray`, *optional*):
+            Positions of the time steps to load, in increasing order, instead of the whole split.
 
     Attributes:
         states (`np.ndarray` of shape `(time, num_variables, latitude, longitude)`):
@@ -46,7 +48,7 @@ class WeatherData:
         latitude_weights (`np.ndarray` of shape `(latitude,)`):
             Area weights with mean 1.
         time_step_hours (`int`):
-            Time between consecutive states.
+            Time between consecutive states (the smallest gap, when only some time steps are loaded).
     """
 
     def __init__(
@@ -55,6 +57,7 @@ class WeatherData:
         split: str,
         store_name: str,
         feature_extractor: NanoWeatherFeatureExtractor | None = None,
+        time_indices: np.ndarray | None = None,
     ):
         self.data_path = data_path
         self.store_path = get_store_path(data_path, store_name)
@@ -62,12 +65,14 @@ class WeatherData:
         self.variables = self.feature_extractor.variables
 
         dataset = xr.open_zarr(self.store_path, group=split)
+        if time_indices is not None:
+            dataset = dataset.isel(time=np.asarray(time_indices))
         self.times = dataset.time.values
         self.latitude = dataset.latitude.values
         self.longitude = dataset.longitude.values
         self.states = np.stack([dataset[name].values for name in self.variables], axis=1).astype(np.float32)
         self.normalized_states = self.feature_extractor.normalize(self.states)
-        self.time_step_hours = int(np.median(np.diff(self.times)) / np.timedelta64(1, "h"))
+        self.time_step_hours = int(np.diff(self.times).min() / np.timedelta64(1, "h"))
 
         static = xr.open_zarr(self.store_path, group="static")
         static = np.stack([static[name].values for name in self.feature_extractor.static_variables]).astype(np.float32)

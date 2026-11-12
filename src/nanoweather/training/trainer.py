@@ -18,7 +18,7 @@ from ..models.configuration_nanoweather import NanoWeatherConfig
 from ..models.configuration_nanoweather_mesh import NanoWeatherMeshConfig
 from ..processing.feature_extraction_nanoweather import NUM_TIME_FEATURES
 from ..processing.prepare import expand_variables
-from .loss_weights import get_pressure_loss_weights
+from .loss_weights import change_std_by_latitude, get_pressure_loss_weights
 
 
 logger = logging.getLogger(__name__)
@@ -146,12 +146,17 @@ def evaluate_loss(model, dataloader, static, device, use_bf16: bool) -> float:
     return total_loss / num_samples
 
 
-def get_loss_settings(args: Namespace, data_config: dict, feature_extractor) -> dict:
-    """`residual_scale` and `loss_weights` for the model config, from the training arguments."""
+def get_loss_settings(args: Namespace, data_config: dict, train_data: WeatherData) -> dict:
+    """`residual_scale`, `loss_weights` and `latitude_weight_exponent` for the model config, from the arguments."""
+    feature_extractor = train_data.feature_extractor
     variables = feature_extractor.variables
     residual_scale = None
     if args.tendency_normalization:
-        residual_scale = (np.array(feature_extractor.diff_std) / np.array(feature_extractor.std)).tolist()
+        state_std = np.array(feature_extractor.std)
+        if getattr(args, "tendency_normalization_by_latitude", False):
+            residual_scale = (change_std_by_latitude(train_data.states) / state_std[:, None]).tolist()
+        else:
+            residual_scale = (np.array(feature_extractor.diff_std) / state_std).tolist()
     if args.loss_weighting == "uniform":
         loss_weights = None
     elif args.loss_weighting == "pressure":
@@ -159,17 +164,27 @@ def get_loss_settings(args: Namespace, data_config: dict, feature_extractor) -> 
         loss_weights = get_pressure_loss_weights(variables, specs, args.surface_loss_weights or {})
     else:
         raise ValueError(f"Unknown loss_weighting {args.loss_weighting!r}, expected 'uniform' or 'pressure'.")
-    return {"residual_scale": residual_scale, "loss_weights": loss_weights}
+    return {
+        "residual_scale": residual_scale,
+        "loss_weights": loss_weights,
+        "latitude_weight_exponent": getattr(args, "latitude_weight_exponent", 1.0),
+    }
 
 
 def log_loss_settings(variables: list[str], settings: dict):
     if settings["loss_weights"] is not None:
         logger.info("Loss weights: " + ", ".join(f"{n} {w:.3f}" for n, w in zip(variables, settings["loss_weights"])))
     if settings["residual_scale"] is not None:
-        logger.info(
-            "Residual scale (diff_std / std): "
-            + ", ".join(f"{n} {r:.3f}" for n, r in zip(variables, settings["residual_scale"]))
-        )
+        scale = np.array(settings["residual_scale"])
+        if scale.ndim == 2:
+            polar_ratio = scale[:, [0, -1]].mean(axis=1) / scale.mean(axis=1)
+            logger.info(
+                "Residual scale per latitude; polar rows / mean: "
+                + ", ".join(f"{n} {r:.2f}" for n, r in zip(variables, polar_ratio))
+            )
+            scale = scale.mean(axis=1)
+        logger.info("Residual scale (diff_std / std): " + ", ".join(f"{n} {r:.3f}" for n, r in zip(variables, scale)))
+    logger.info(f"Latitude weight exponent {settings['latitude_weight_exponent']}")
 
 
 def save_checkpoint(model, feature_extractor, output_dir: str):
@@ -226,7 +241,7 @@ def build_model(args: Namespace, data_config: dict, train_data: WeatherData, num
     ]
     if missing:
         raise ValueError(f"Set {', '.join(missing)} to train a new model, or init_from to fine-tune a trained one.")
-    loss_settings = get_loss_settings(args, data_config, train_data.feature_extractor)
+    loss_settings = get_loss_settings(args, data_config, train_data)
     log_loss_settings(train_data.variables, loss_settings)
     common = {
         "variables": train_data.variables,

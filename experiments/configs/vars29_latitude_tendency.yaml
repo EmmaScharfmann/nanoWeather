@@ -1,0 +1,3 @@
+# The predicted change normalized per variable and latitude row.
+base: configs/train/pretrain.yaml
+tendency_normalization_by_latitude: true

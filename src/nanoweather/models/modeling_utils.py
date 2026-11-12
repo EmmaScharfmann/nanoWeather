@@ -41,10 +41,14 @@ class NanoWeatherForecastOutput:
     last_hidden_state: torch.FloatTensor | None = None
 
 
-def get_latitude_weights(num_latitudes: int) -> torch.Tensor:
-    """`cos(latitude)` on an equiangular grid without poles (as in WeatherBench 2), normalized to mean 1."""
+def get_latitude_weights(num_latitudes: int, exponent: float = 1.0) -> torch.Tensor:
+    """
+    `cos(latitude) ** exponent` on an equiangular grid without poles (as in WeatherBench 2), normalized to mean 1.
+
+    With `exponent=1`, rows are weighted by their area; with 0, all rows count equally.
+    """
     latitude = -90 + (torch.arange(num_latitudes, dtype=torch.float64) + 0.5) * 180 / num_latitudes
-    weights = torch.cos(torch.deg2rad(latitude))
+    weights = torch.cos(torch.deg2rad(latitude)) ** exponent
     return (weights / weights.mean()).float()
 
 
@@ -160,13 +164,22 @@ class NanoWeatherForecastingModel(NanoWeatherPreTrainedModel):
 
     def __init__(self, config: NanoWeatherBaseConfig):
         super().__init__(config)
-        self.register_buffer("latitude_weights", get_latitude_weights(config.grid_size[0]), persistent=False)
-        self.register_buffer("residual_scale", self._per_variable_buffer(config.residual_scale), persistent=False)
+        latitude_weights = get_latitude_weights(config.grid_size[0], config.latitude_weight_exponent)
+        self.register_buffer("latitude_weights", latitude_weights, persistent=False)
+        self.register_buffer("residual_scale", self._residual_scale_buffer(config.residual_scale), persistent=False)
         self.register_buffer("variable_weights", self._per_variable_buffer(config.loss_weights), persistent=False)
 
     @staticmethod
     def _per_variable_buffer(values: list[float] | None) -> torch.Tensor | None:
         return torch.tensor(values, dtype=torch.float32) if values is not None else None
+
+    @staticmethod
+    def _residual_scale_buffer(values: list | None) -> torch.Tensor | None:
+        """Per-variable scale as `(num_variables, 1, 1)`, or per variable and latitude as `(num_variables, latitude, 1)`."""
+        if values is None:
+            return None
+        scale = torch.tensor(values, dtype=torch.float32)
+        return scale[:, None, None] if scale.dim() == 1 else scale[:, :, None]
 
     def init_output_head(self, head: nn.Linear):
         """With `config.predict_residual`, zeroes the output head so the untrained model predicts no change."""
@@ -231,13 +244,13 @@ class NanoWeatherForecastingModel(NanoWeatherPreTrainedModel):
 
         prediction, last_hidden_state = self.predict_change(pixel_values)
         if self.residual_scale is not None:
-            prediction = prediction * self.residual_scale[:, None, None].to(prediction.dtype)
+            prediction = prediction * self.residual_scale.to(prediction.dtype)
         if self.config.predict_residual:
             prediction = states + prediction
 
         loss = None
         if labels is not None:
-            error_scale = self.residual_scale[:, None, None] if self.residual_scale is not None else 1.0
+            error_scale = self.residual_scale if self.residual_scale is not None else 1.0
             loss = latitude_weighted_mse(
                 prediction.float() / error_scale,
                 labels.float() / error_scale,

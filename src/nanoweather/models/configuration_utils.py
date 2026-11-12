@@ -41,13 +41,18 @@ COMMON_ARGS_DOC = r"""
         predict_residual (`bool`, *optional*, defaults to `True`):
             Whether the model predicts the change over one time step, added to the input state, rather than the next
             state directly. The output head then starts at zero, so the untrained model is the persistence forecast.
-        residual_scale (`list[float]`, *optional*):
+        residual_scale (`list[float]` or `list[list[float]]`, *optional*):
             Per variable, the standard deviation of the change over one time step divided by the standard deviation
-            of the state (`diff_std / std`). When set, the output of the head is multiplied by it before being added to
-            the input state, so the head predicts changes of unit variance for every variable, and the loss is
-            computed on changes in these units. Requires `predict_residual`. `None` disables it.
+            of the state (`diff_std / std`), or per variable and latitude row (one list of `grid_size[0]` values per
+            variable). When set, the output of the head is multiplied by it before being added to the input state, so
+            the head predicts changes of unit variance, and the loss is computed on changes in these units. Per
+            latitude, every row's errors count relative to its own typical change. Requires `predict_residual`.
+            `None` disables it.
         loss_weights (`list[float]`, *optional*):
-            Weight of each variable in the loss, normalized to mean 1. `None` weights all variables equally."""
+            Weight of each variable in the loss, normalized to mean 1. `None` weights all variables equally.
+        latitude_weight_exponent (`float`, *optional*, defaults to 1.0):
+            Latitude rows are weighted in the loss by `cos(latitude) ** latitude_weight_exponent`, normalized to mean 1.
+            1 weights rows by their area; smaller values give polar rows more weight; 0 weights all rows equally."""
 
 
 class NanoWeatherBaseConfig:
@@ -74,6 +79,7 @@ class NanoWeatherBaseConfig:
         predict_residual: bool = True,
         residual_scale: list[float] | None = None,
         loss_weights: list[float] | None = None,
+        latitude_weight_exponent: float = 1.0,
         attn_implementation: str | None = None,
         **kwargs,
     ):
@@ -93,6 +99,7 @@ class NanoWeatherBaseConfig:
         self.predict_residual = predict_residual
         self.residual_scale = list(residual_scale) if residual_scale is not None else None
         self.loss_weights = list(loss_weights) if loss_weights is not None else None
+        self.latitude_weight_exponent = latitude_weight_exponent
         self.attn_implementation = attn_implementation or self.attn_implementations[0]
 
         if hidden_size % num_attention_heads != 0:
@@ -104,6 +111,9 @@ class NanoWeatherBaseConfig:
                 raise ValueError(
                     f"`{name}` must have one value per variable ({len(self.variables)}), got {len(values)}."
                 )
+        if self.residual_scale is not None and isinstance(self.residual_scale[0], list):
+            if any(len(row) != self.grid_size[0] for row in self.residual_scale):
+                raise ValueError(f"Per-latitude `residual_scale` needs {self.grid_size[0]} values per variable.")
         if self.residual_scale is not None and not predict_residual:
             raise ValueError("`residual_scale` requires `predict_residual=True`.")
         if num_input_steps < 1:

@@ -184,6 +184,24 @@ Different test years (2017-2018), so only indicative.
   persistence by latitude, on training and test years; spread of state and change by latitude against the global
   normalization; loss weight per row).
 
+## Latitude diagnostic (diagnose_latitude.py)
+
+- First-step RMSE divided by persistence's (the typical 6h change): 40-60 deg z500 0.17, t850 0.29, t2m 0.25; polar
+  rows z500 0.32-0.39, t850 0.53-0.62, t2m 0.58-0.66. The model captures about half as large a share of the change
+  at the poles.
+- Training years and test year almost identical (z500 polar 0.32 vs 0.34): underfitting, not overfitting. The model
+  never learned the poles.
+- Rollout fine-tuning makes the first step slightly worse everywhere, without changing the polar pattern. The mesh is
+  slightly worse at the poles at the first step (z500 0.36-0.39).
+- Interpretation: weak training signal at the poles, from the area weight of the rows and possibly from polar changes
+  being small relative to the global normalization.
+
+## Latitude fixes (in progress)
+
+- `latitude_weight_exponent` (rows weighted by cos^p in the training loss) and `tendency_normalization_by_latitude`
+  (residual scale per variable and latitude row, from the training data). Experiments vars29_latitude_weights
+  (p = 0.5), vars29_latitude_tendency and vars29_latitude_both, compared with vars29_both.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

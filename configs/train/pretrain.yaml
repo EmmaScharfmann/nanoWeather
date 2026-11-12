@@ -21,6 +21,8 @@ use_time_features: false
 
 # Loss
 tendency_normalization: true
+tendency_normalization_by_latitude: false  # scale the change per variable and latitude row, not per variable only
+latitude_weight_exponent: 1.0  # rows weighted by cos(latitude)**exponent in the loss: 1 area, 0 uniform
 loss_weighting: pressure  # or uniform
 surface_loss_weights: {t2m: 1.0, u10: 0.1, v10: 0.1, msl: 0.1}
 

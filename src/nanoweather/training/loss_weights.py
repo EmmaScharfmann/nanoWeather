@@ -1,4 +1,4 @@
-"""Per-variable loss weights."""
+"""Loss settings computed from the data: per-variable weights and per-latitude change statistics."""
 
 from collections import defaultdict
 
@@ -40,3 +40,28 @@ def get_pressure_loss_weights(
             weights.append(surface_weights.get(name, 1.0))
     weights = np.array(weights, dtype=np.float64)
     return (weights / weights.mean()).tolist()
+
+
+def change_std_by_latitude(states: np.ndarray, chunk_size: int = 1024) -> np.ndarray:
+    """
+    Standard deviation of the change between consecutive time steps, per variable and latitude row.
+
+    Computed over time and longitude, in chunks of `chunk_size` time steps to bound memory.
+
+    Args:
+        states (`np.ndarray` of shape `(time, num_variables, latitude, longitude)`):
+            Consecutive states, without gaps.
+
+    Returns:
+        `np.ndarray` of shape `(num_variables, latitude)`.
+    """
+    total = np.zeros(states.shape[1:3])
+    total_squares = np.zeros(states.shape[1:3])
+    count = 0
+    for start in range(0, len(states) - 1, chunk_size):
+        changes = np.diff(states[start : start + chunk_size + 1].astype(np.float64), axis=0)
+        total += changes.sum(axis=(0, 3))
+        total_squares += (changes**2).sum(axis=(0, 3))
+        count += changes.shape[0] * changes.shape[3]
+    mean = total / count
+    return np.sqrt(np.maximum(total_squares / count - mean**2, 0.0))

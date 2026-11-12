@@ -88,3 +88,53 @@ def test_invalid_settings():
         small_config(loss_weights=[1.0] * 5)
     with pytest.raises(ValueError):
         small_config(residual_scale=[1.0] * 6, predict_residual=False)
+
+
+def test_latitude_weight_exponent():
+    from nanoweather.models.modeling_utils import get_latitude_weights
+
+    torch.testing.assert_close(get_latitude_weights(32, 0.0), torch.ones(32))
+    area, softened = get_latitude_weights(32, 1.0), get_latitude_weights(32, 0.5)
+    assert softened[0] > 2 * area[0]
+    assert torch.isclose(softened.mean(), torch.tensor(1.0))
+
+
+def test_change_std_by_latitude_matches_direct_computation():
+    from nanoweather.training.loss_weights import change_std_by_latitude
+
+    states = np.random.default_rng(0).normal(size=(50, 2, 4, 8)) * np.arange(1, 5)[None, None, :, None]
+    expected = np.diff(states, axis=0).std(axis=(0, 3))
+    np.testing.assert_allclose(change_std_by_latitude(states, chunk_size=7), expected, rtol=1e-10)
+
+
+@pytest.mark.parametrize("architecture", ["vit", "mesh"])
+def test_residual_scale_per_latitude(architecture, tmp_path):
+    from nanoweather.models.auto import load_model, model_class_for
+    from nanoweather.models.configuration_nanoweather_mesh import NanoWeatherMeshConfig
+
+    scale = (np.linspace(0.2, 1.0, 32)[None, :] * np.arange(1, 7)[:, None] / 6).tolist()
+    sizes = {"hidden_size": 32, "num_hidden_layers": 1, "num_attention_heads": 4, "intermediate_size": 64}
+    if architecture == "vit":
+        config = NanoWeatherConfig(residual_scale=scale, latitude_weight_exponent=0.5, **sizes)
+    else:
+        config = NanoWeatherMeshConfig(residual_scale=scale, latitude_weight_exponent=0.5, mesh_refinement=1, **sizes)
+    model = model_class_for(config.model_type)(config).eval()
+    states, static = torch.randn(2, 6, 32, 64), torch.randn(2, 32, 64)
+    assert torch.equal(model(states, static=static).prediction, states)
+
+    torch.nn.init.normal_(model.head.weight, std=0.05)
+    output = model(states, static=static, labels=states)
+    change = output.prediction - states
+    scale_grid = torch.tensor(scale, dtype=torch.float32)[:, :, None]
+    expected = latitude_weighted_mse(change / scale_grid, torch.zeros_like(change), model.latitude_weights)
+    torch.testing.assert_close(output.loss, expected)
+
+    model.save_pretrained(tmp_path)
+    loaded = load_model(tmp_path)
+    assert loaded.config.residual_scale == scale and loaded.config.latitude_weight_exponent == 0.5
+    torch.testing.assert_close(loaded(states, static=static).prediction, model(states, static=static).prediction)
+
+
+def test_invalid_per_latitude_residual_scale():
+    with pytest.raises(ValueError):
+        small_config(residual_scale=[[1.0] * 31] * 6)

@@ -32,6 +32,16 @@ uv run scripts/evaluate.py --checkpoint checkpoints/rollout/best
 - **Evaluation**: forecasts from 00 and 12 UTC every day of 2020, to 10 days, against ERA5. RMSE, anomaly correlation
   (ACC), and skill horizon (lead time at which ACC falls below 0.6), compared with persistence and climatology.
 
+## Latitude settings of the loss
+
+Two options in the training config address errors that grow toward the poles:
+
+- `latitude_weight_exponent`: rows are weighted by `cos(latitude) ** exponent` in the training loss. 1 (default)
+  weights by area; 0.5 gives polar rows about 3 times more weight; 0 weights all rows equally. Evaluation always stays
+  area-weighted, so scores remain comparable.
+- `tendency_normalization_by_latitude`: the predicted change is scaled per variable and latitude row, by the typical
+  6-hour change of that row in the training data, so every row's errors count relative to its own variability.
+
 ## Architectures
 
 Set `architecture` in the training config:

@@ -1,0 +1,3 @@
+# Polar rows weighted more in the training loss (evaluation stays area-weighted).
+base: configs/train/pretrain.yaml
+latitude_weight_exponent: 0.5

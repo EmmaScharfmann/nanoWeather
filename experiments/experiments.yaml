@@ -84,3 +84,15 @@ ablations:
     init_from: vars29_mesh
     compare_to: vars29_both_rollout
     description: icosahedral mesh, after rollout fine-tuning
+  - name: vars29_latitude_weights
+    config: experiments/configs/vars29_latitude_weights.yaml
+    compare_to: vars29_both
+    description: loss rows weighted by cos(latitude)**0.5 instead of cos(latitude)
+  - name: vars29_latitude_tendency
+    config: experiments/configs/vars29_latitude_tendency.yaml
+    compare_to: vars29_both
+    description: predicted change normalized per variable and latitude
+  - name: vars29_latitude_both
+    config: experiments/configs/vars29_latitude_both.yaml
+    compare_to: vars29_both
+    description: both latitude changes

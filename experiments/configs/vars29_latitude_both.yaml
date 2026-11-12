@@ -1,0 +1,3 @@
+base: configs/train/pretrain.yaml
+latitude_weight_exponent: 0.5
+tendency_normalization_by_latitude: true

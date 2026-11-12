@@ -91,6 +91,11 @@ def plot_diagnostics(diagnostics: dict, variables: list[str], latitude, longitud
     """
     Three figures: bias maps (variables x lead times), RMSE by latitude, and zonal spectra.
 
+    If `diagnostics` has `climatology_rmse_by_latitude` (the RMSE of the climatology forecast, i.e. how much the
+    atmosphere departs from its usual state at each latitude), the latitude figure shows it as a reference, and a
+    second row shows the model's RMSE divided by it. Errors grow toward this natural variability with lead time, so
+    the ratio, not the raw RMSE, tells where a model is better or worse.
+
     Returns:
         `dict` of figure name to `matplotlib.figure.Figure`.
     """
@@ -120,17 +125,30 @@ def plot_diagnostics(diagnostics: dict, variables: list[str], latitude, longitud
         fig.colorbar(mesh, ax=axes[row, -1], label=units[row])
     figures["bias"] = fig
 
+    climatology = diagnostics.get("climatology_rmse_by_latitude")
+    num_rows = 1 if climatology is None else 2
     fig, axes = plt.subplots(
-        1, num_variables, figsize=(4.5 * num_variables, 3.8), squeeze=False, constrained_layout=True
+        num_rows, num_variables, figsize=(4.5 * num_variables, 3.8 * num_rows), squeeze=False, constrained_layout=True
     )
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     for column, name in enumerate(variables):
-        ax = axes[0, column]
         for lead in range(num_leads):
-            ax.plot(latitude, diagnostics["rmse_by_latitude"][lead, column], label=f"day {lead_days[lead]:g}")
-        ax.set_title(f"{name} RMSE by latitude")
-        ax.set_xlabel("latitude")
-        ax.set_ylabel(units[column])
-        ax.grid(alpha=0.3)
+            rmse = diagnostics["rmse_by_latitude"][lead, column]
+            axes[0, column].plot(latitude, rmse, color=colors[lead], label=f"day {lead_days[lead]:g}")
+            if climatology is not None:
+                axes[1, column].plot(
+                    latitude, rmse / climatology[lead, column], color=colors[lead], label=f"day {lead_days[lead]:g}"
+                )
+        axes[0, column].set_title(f"{name} RMSE by latitude")
+        axes[0, column].set_ylabel(units[column])
+        if climatology is not None:
+            axes[0, column].plot(latitude, climatology[-1, column], "k:", label="natural variability")
+            axes[1, column].set_title(f"{name} RMSE / natural variability")
+            axes[1, column].axhline(1.0, color="k", linewidth=0.8)
+            axes[1, column].set_ylim(bottom=0)
+        for row in range(num_rows):
+            axes[row, column].set_xlabel("latitude")
+            axes[row, column].grid(alpha=0.3)
     axes[0, 0].legend()
     figures["rmse_by_latitude"] = fig
 

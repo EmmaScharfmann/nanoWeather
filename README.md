@@ -75,7 +75,7 @@ uv run scripts/train.py --output_dir checkpoints/test --set num_train_epochs=5 l
 | `configs/train/pretrain.yaml` | `train.py` (default), step 1 |
 | `configs/train/rollout.yaml` | `train.py --config ...`, step 2, inherits from `pretrain.yaml` |
 | `configs/evaluation.yaml` | `evaluate.py` |
-| `configs/diagnostics.yaml` | `diagnose.py`: bias maps, RMSE by latitude, spectra |
+| `configs/diagnostics.yaml` | `diagnose.py`: bias maps, RMSE by latitude (raw and relative to natural variability), spectra |
 | `configs/visualization.yaml` | `visualize.py`: maps and animation of one forecast |
 
 A config can start from another with `base: <path>` and list only what differs.

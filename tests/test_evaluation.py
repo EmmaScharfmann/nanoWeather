@@ -153,3 +153,29 @@ def test_init_indices_with_history(data):
     indices = get_init_indices(data.times, "2020-01-01T00", "2020-12-31T12", 12, NUM_STEPS, num_history_steps=1)
     assert len(indices) == 731
     assert indices.min() >= 1
+
+
+def test_latitude_plot_with_natural_variability_reference(data, init_indices):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from nanoweather.evaluation.diagnostics import plot_diagnostics
+
+    def noisy(data, init_indices, num_steps):
+        return get_targets(data, init_indices, num_steps) + 0.5
+
+    def climatology(data, init_indices, num_steps):
+        return np.zeros_like(get_targets(data, init_indices, num_steps))
+
+    diagnostics = compute_diagnostics(noisy, data, init_indices[:50], [1, 4], VARIABLES, batch_size=64)
+    reference = compute_diagnostics(climatology, data, init_indices[:50], [1, 4], VARIABLES, batch_size=64)
+    diagnostics["climatology_rmse_by_latitude"] = reference["rmse_by_latitude"]
+    np.testing.assert_allclose(diagnostics["rmse_by_latitude"], 0.5, atol=1e-6)
+    np.testing.assert_allclose(reference["rmse_by_latitude"], 1.0, atol=0.15)
+
+    latitude, longitude = np.linspace(-80, 80, 4), np.arange(8) * 45.0
+    figures = plot_diagnostics(diagnostics, VARIABLES, latitude, longitude, np.zeros((4, 8)), ["u", "u"])
+    assert len(figures["rmse_by_latitude"].axes) == 2 * len(VARIABLES)
+    del diagnostics["climatology_rmse_by_latitude"]
+    figures = plot_diagnostics(diagnostics, VARIABLES, latitude, longitude, np.zeros((4, 8)), ["u", "u"])
+    assert len(figures["rmse_by_latitude"].axes) == len(VARIABLES)

@@ -202,6 +202,29 @@ Different test years (2017-2018), so only indicative.
   (residual scale per variable and latitude row, from the training data). Experiments vars29_latitude_weights
   (p = 0.5), vars29_latitude_tendency and vars29_latitude_both, compared with vars29_both.
 
+## The poles: measured against natural variability (corrects the entries above)
+
+- Earlier entries concluded that the rise of RMSE toward the poles was not natural variability, from two arguments
+  (the rise exists at day 1; it continues to the last row whereas storm tracks peak near 50 deg). Neither was checked
+  against data. Measured on ERA5 2020 (same protocol as the diagnostics):
+- Natural variability (RMSE of the climatology forecast) by latitude: z500 1099 at 48N, 1221 at 59N, 1388 at 87N
+  (it rises to the North Pole; 2020 also had a record-strong Arctic vortex); 1446 at 53S, 933 at 87S. t850 4.7 at
+  48N, 5.0 at 87N, 4.4 at 87S. t2m 3.4 at 48N, 4.6 at 76N, 4.9 at 76S, 1.5 at 48-53S, 0.8 at the equator.
+- vars29_both_rollout day-5 RMSE divided by natural variability (model values read from the plot, +-5%):
+  z500 0.59-0.65 from 48N to 87N (0.59 at 87N), 0.59-0.65 in the southern storm track, 0.71-0.72 over Antarctica;
+  t850 0.68-0.73 in the north, 0.81-0.82 over Antarctica; t2m 0.67-0.81 everywhere.
+  At day 1 for z500: 0.12-0.13 from 48N to 87N, 0.09-0.11 in the southern storm track, 0.15-0.18 over Antarctica.
+- Conclusion: relative to how much the atmosphere varies, the Arctic is forecast as well as the mid-latitudes. The
+  raw RMSE rises toward the poles because variability does. The persistence ratio looked worse at the poles because
+  polar weather is more persistent (6h changes are small relative to its variability), not because the model fails
+  there. What remains is Antarctica: 10-20% worse at day 5, about 1.5 times worse at day 1 for z500. Over the
+  plateau the surface is near 650-700 hPa, so three of the five input levels (700, 850, 925) are below ground.
+- This explains why the mesh, the latitude weights and the per-latitude normalization did not change the picture:
+  there was no polar-specific failure to fix. Latitude weights (p = 0.5) still gave a small global gain.
+- No time-of-day effect in the 6h changes at the poles (start hours differ by a few percent).
+- `scripts/diagnose.py` now saves and plots the natural variability by latitude and the normalized error, so this
+  is checked with exact values. Lesson: normalize by natural variability before interpreting errors by region.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

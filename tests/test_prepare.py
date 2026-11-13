@@ -86,3 +86,10 @@ def test_expand_variables():
     six = expand_variables(load_yaml("experiments/configs/data_6vars.yaml"))
     assert list(six) == ["z500", "t850", "t2m", "u10", "v10", "msl"]
     assert len(expand_variables(load_yaml("configs/data.yaml"))) == 29
+
+
+def test_thirteen_level_config():
+    variables = expand_variables(load_yaml("experiments/configs/data_13levels.yaml"))
+    assert len(variables) == 6 * 13 + 4
+    assert variables["w500"] == {"source": "vertical_velocity", "level": 500}
+    assert {"z500", "t850", "t2m", "u10", "v10", "msl"} <= set(variables)

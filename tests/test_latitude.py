@@ -36,3 +36,23 @@ def test_statistics_by_latitude():
     statistics = statistics_by_latitude(data, np.arange(0, 1998, 2), ["a"])
     np.testing.assert_allclose(statistics["state_std"][0], spread, rtol=0.05)
     np.testing.assert_allclose(statistics["change_std"][0], spread * np.sqrt(2), rtol=0.05)
+
+
+def test_training_mode_keeps_only_normalized_states(tmp_path):
+    times = pd.date_range("2020-01-01", periods=6, freq="6h")
+    coords = {"latitude": np.linspace(-80, 80, 4), "longitude": np.arange(8) * 45.0}
+    values = np.random.default_rng(0).normal(10.0, 3.0, size=(6, 4, 8)).astype(np.float32)
+    xr.Dataset({"a": (("time", "latitude", "longitude"), values)}, coords={"time": times, **coords}).to_zarr(
+        tmp_path / "store.zarr", group="train", zarr_format=2
+    )
+    static = {"land_sea_mask": (("latitude", "longitude"), np.zeros((4, 8), np.float32))}
+    static["orography"] = static["land_sea_mask"]
+    xr.Dataset(static, coords=coords).to_zarr(tmp_path / "store.zarr", group="static", mode="a", zarr_format=2)
+    NanoWeatherFeatureExtractor(variables=["a"], mean=[10.0], std=[3.0]).save_pretrained(tmp_path)
+
+    full = WeatherData(tmp_path, "train", "store.zarr")
+    training = WeatherData(tmp_path, "train", "store.zarr", keep_physical_states=False)
+    assert training.states is None
+    np.testing.assert_array_equal(training.normalized_states, full.normalized_states)
+    np.testing.assert_allclose(full.normalized_states[:, 0], (values - 10.0) / 3.0, rtol=1e-6)
+    np.testing.assert_array_equal(full.states[:, 0], values)

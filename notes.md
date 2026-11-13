@@ -225,6 +225,25 @@ Different test years (2017-2018), so only indicative.
 - `scripts/diagnose.py` now saves and plots the natural variability by latitude and the normalized error, so this
   is checked with exact values. Lesson: normalize by natural variability before interpreting errors by region.
 
+## Data review (2026-11-13)
+
+- Splits: 2017-2019 were unused, a v0 simplification. Plan, done last so experiments stay fast: train 1979-2018,
+  validation 2019 (closest to the test year), test 2020. Until then, validation stays 2016 for comparability.
+- Variables compared with GraphCast, Pangu, Aurora, WeatherNext 2, AIFS: missing the 8 other pressure levels,
+  vertical velocity, precipitation, top-of-atmosphere solar radiation, surface pressure, sea surface temperature,
+  sea ice, and static surface fields (subgrid orography, soil, vegetation, lakes). All available in WeatherBench 2 at
+  5.625 deg. Solar radiation, SST and sea ice should be inputs only (forcings): needs code support.
+
+## 13 levels and vertical velocity (in progress)
+
+- experiments/configs/data_13levels.yaml: z, t, u, v, q, w at all 13 levels plus 4 surface variables (82). Checked
+  on a short real period: no missing values. Vertical velocity changes about as much in 6h as it varies (6h change
+  std / std 0.9-1.3, against 0.04-0.2 for z and t aloft): noisy, expect high errors on it.
+- Memory: loading a split peaked at about 3 copies (stack, astype, normalize). Now one preallocated array; training
+  keeps only the normalized copy, normalized in place (measured 3.1 -> 1.2 copies); evaluation 2 copies. 82
+  variables, 2000-2015: about 16 GB per copy, so about 19 GB in training instead of about 50.
+- Experiments: levels13 (latitude weights 0.5) vs vars29_latitude_weights, and their rollout fine-tunings.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

@@ -37,10 +37,13 @@ class WeatherData:
             Normalization to apply. Loaded from `data_path` if not given.
         time_indices (`np.ndarray`, *optional*):
             Positions of the time steps to load, in increasing order, instead of the whole split.
+        keep_physical_states (`bool`, *optional*, defaults to `True`):
+            Whether to keep the states in physical units next to the normalized ones. Training only needs the
+            normalized states; without the physical copy the split takes half the memory, and `states` is `None`.
 
     Attributes:
         states (`np.ndarray` of shape `(time, num_variables, latitude, longitude)`):
-            States in physical units.
+            States in physical units, or `None` with `keep_physical_states=False`.
         normalized_states (`np.ndarray` of shape `(time, num_variables, latitude, longitude)`):
             States normalized with `feature_extractor`.
         static (`np.ndarray` of shape `(num_static_variables, latitude, longitude)`):
@@ -58,6 +61,7 @@ class WeatherData:
         store_name: str,
         feature_extractor: NanoWeatherFeatureExtractor | None = None,
         time_indices: np.ndarray | None = None,
+        keep_physical_states: bool = True,
     ):
         self.data_path = data_path
         self.store_path = get_store_path(data_path, store_name)
@@ -70,14 +74,32 @@ class WeatherData:
         self.times = dataset.time.values
         self.latitude = dataset.latitude.values
         self.longitude = dataset.longitude.values
-        self.states = np.stack([dataset[name].values for name in self.variables], axis=1).astype(np.float32)
-        self.normalized_states = self.feature_extractor.normalize(self.states)
+        states = np.empty(
+            (dataset.sizes["time"], len(self.variables), *self.latitude.shape, *self.longitude.shape), np.float32
+        )
+        for channel, name in enumerate(self.variables):
+            states[:, channel] = dataset[name].values
+        if keep_physical_states:
+            self.states = states
+            self.normalized_states = self._normalize_in_place(states.copy())
+        else:
+            self.states = None
+            self.normalized_states = self._normalize_in_place(states)
         self.time_step_hours = int(np.diff(self.times).min() / np.timedelta64(1, "h"))
 
         static = xr.open_zarr(self.store_path, group="static")
         static = np.stack([static[name].values for name in self.feature_extractor.static_variables]).astype(np.float32)
         self.static = self.feature_extractor.normalize_static(static)
         self.latitude_weights = latitude_weights(self.latitude).astype(np.float32)
+
+    def _normalize_in_place(self, states: np.ndarray) -> np.ndarray:
+        """Normalizes `states` without allocating a second array of the same size."""
+        mean = np.asarray(self.feature_extractor.mean, dtype=np.float32)[:, None, None]
+        std = np.asarray(self.feature_extractor.std, dtype=np.float32)[:, None, None]
+        for channel in range(states.shape[1]):
+            states[:, channel] -= mean[channel]
+            states[:, channel] /= std[channel]
+        return states
 
 
 class ForecastPairs(torch.utils.data.Dataset):

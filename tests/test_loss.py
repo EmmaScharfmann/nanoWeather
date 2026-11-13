@@ -138,3 +138,13 @@ def test_residual_scale_per_latitude(architecture, tmp_path):
 def test_invalid_per_latitude_residual_scale():
     with pytest.raises(ValueError):
         small_config(residual_scale=[[1.0] * 31] * 6)
+
+
+def test_per_latitude_scale_from_normalized_states_matches_physical():
+    from nanoweather.training.loss_weights import change_std_by_latitude
+
+    rng = np.random.default_rng(1)
+    states = rng.normal(280.0, 5.0, size=(40, 2, 4, 8))
+    std = np.array([5.0, 2.0])
+    normalized = (states - 280.0) / std[None, :, None, None]
+    np.testing.assert_allclose(change_std_by_latitude(normalized), change_std_by_latitude(states) / std[:, None])

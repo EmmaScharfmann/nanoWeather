@@ -1,0 +1,4 @@
+# The current best recipe (latitude weights 0.5) on all 13 pressure levels with vertical velocity (82 variables).
+base: configs/train/pretrain.yaml
+data_config: experiments/configs/data_13levels.yaml
+latitude_weight_exponent: 0.5

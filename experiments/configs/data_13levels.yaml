@@ -1,0 +1,32 @@
+# All 13 pressure levels of WeatherBench 2 and vertical velocity: 6 x 13 + 4 = 82 variables.
+output_dir: data/era5_5.625deg_13levels
+store_name: era5.zarr
+time_chunk_size: 1464
+
+source:
+  era5_url: https://storage.googleapis.com/weatherbench2/datasets/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr
+  climatology_url: https://storage.googleapis.com/weatherbench2/datasets/era5-hourly-climatology/1990-2019_6h_64x32_equiangular_conservative.zarr
+
+pressure_levels: [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+pressure_level_variables:
+  z: geopotential
+  t: temperature
+  u: u_component_of_wind
+  v: v_component_of_wind
+  q: specific_humidity
+  w: vertical_velocity
+
+variables:
+  t2m: {source: 2m_temperature}
+  u10: {source: 10m_u_component_of_wind}
+  v10: {source: 10m_v_component_of_wind}
+  msl: {source: mean_sea_level_pressure}
+
+static_variables:
+  land_sea_mask: land_sea_mask
+  orography: geopotential_at_surface
+
+splits:
+  train: ["2000-01-01T00", "2015-12-31T18"]
+  val: ["2016-01-01T00", "2016-12-31T18"]
+  test: ["2020-01-01T00", "2021-01-10T18"]

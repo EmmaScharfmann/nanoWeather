@@ -89,6 +89,7 @@ recipe.
 
 ```bash
 uv run scripts/prepare_data.py --config experiments/configs/data_6vars.yaml   # dataset of the original v0
+uv run scripts/prepare_data.py --config experiments/configs/data_13levels.yaml # 13 levels + vertical velocity (82 variables)
 uv run scripts/run_experiments.py --dry_run                                    # what would be trained
 uv run scripts/run_experiments.py                                              # trains missing checkpoints
 uv run scripts/evaluate.py --experiments experiments/experiments.yaml --output_dir results/experiments
@@ -97,6 +98,10 @@ uv run scripts/diagnose.py --checkpoint checkpoints/vars29_both_rollout/best
 uv run scripts/diagnose_latitude.py --checkpoint checkpoints/vars29_both_rollout/best checkpoints/vars29_mesh_rollout/best
 uv run scripts/visualize.py --checkpoint checkpoints/vars29_both_rollout/best
 ```
+
+Models trained on more variables need a dataset containing all their inputs: evaluate the 13-level experiments with
+`--set data_config=experiments/configs/data_13levels.yaml`, which also scores the 29-variable models on the variables
+they share.
 
 Checkpoints go to `checkpoints/<experiment>/`, results to `results/`; neither is versioned. All experiments are
 evaluated together, on the variables and forecasts they have in common, so their scores are directly comparable.

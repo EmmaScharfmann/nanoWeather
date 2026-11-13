@@ -96,3 +96,17 @@ ablations:
     config: experiments/configs/vars29_latitude_both.yaml
     compare_to: vars29_both
     description: both latitude changes
+  - name: vars29_latitude_weights_rollout
+    config: configs/train/rollout.yaml
+    init_from: vars29_latitude_weights
+    compare_to: vars29_both_rollout
+    description: latitude weights 0.5, after rollout fine-tuning
+  - name: levels13
+    config: experiments/configs/levels13.yaml
+    compare_to: vars29_latitude_weights
+    description: 13 pressure levels and vertical velocity (82 variables) instead of 5 levels (29 variables)
+  - name: levels13_rollout
+    config: configs/train/rollout.yaml
+    init_from: levels13
+    compare_to: vars29_latitude_weights_rollout
+    description: 13 pressure levels and vertical velocity, after rollout fine-tuning

@@ -154,7 +154,7 @@ def get_loss_settings(args: Namespace, data_config: dict, train_data: WeatherDat
     if args.tendency_normalization:
         state_std = np.array(feature_extractor.std)
         if getattr(args, "tendency_normalization_by_latitude", False):
-            residual_scale = (change_std_by_latitude(train_data.states) / state_std[:, None]).tolist()
+            residual_scale = change_std_by_latitude(train_data.normalized_states).tolist()
         else:
             residual_scale = (np.array(feature_extractor.diff_std) / state_std).tolist()
     if args.loss_weighting == "uniform":
@@ -248,7 +248,7 @@ def build_model(args: Namespace, data_config: dict, train_data: WeatherData, num
         "num_input_steps": args.num_input_steps,
         "num_static_channels": num_static_channels,
         "num_time_features": NUM_TIME_FEATURES if args.use_time_features else 0,
-        "grid_size": train_data.states.shape[-2:],
+        "grid_size": train_data.normalized_states.shape[-2:],
         "hidden_size": args.hidden_size,
         "num_hidden_layers": args.num_hidden_layers,
         "num_attention_heads": args.num_attention_heads,
@@ -298,7 +298,7 @@ def train(args: Namespace, data_config: dict):
     logger.info(f"Device {device}, bf16 {use_bf16}")
 
     store_name = data_config["store_name"]
-    train_data = WeatherData(args.data_path, split="train", store_name=store_name)
+    train_data = WeatherData(args.data_path, split="train", store_name=store_name, keep_physical_states=False)
     static = torch.from_numpy(train_data.static).to(device)
     model = build_model(args, data_config, train_data, static.shape[0]).to(device)
     config = model.config
@@ -312,7 +312,11 @@ def train(args: Namespace, data_config: dict):
         return
 
     val_data = WeatherData(
-        args.data_path, split="val", store_name=store_name, feature_extractor=train_data.feature_extractor
+        args.data_path,
+        split="val",
+        store_name=store_name,
+        feature_extractor=train_data.feature_extractor,
+        keep_physical_states=False,
     )
     pin_memory = device.type == "cuda"
     val_steps = max(stages)

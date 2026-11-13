@@ -27,6 +27,10 @@ def main():
 
     experiments = load_experiments(args.experiments)
     by_name = {experiment.name: experiment for experiment in experiments}
+    unknown = sorted(set(args.only or []) - set(by_name))
+    if unknown:
+        parser.error(f"not in {args.experiments}: {', '.join(unknown)}")
+    trained = 0
     for experiment in experiments:
         if args.only and experiment.name not in args.only:
             continue
@@ -40,6 +44,9 @@ def main():
         logging.info(f"{experiment.name}: {' '.join(command[1:])}")
         if not args.dry_run:
             subprocess.run(command, check=True)
+        trained += 1
+    if trained == 0:
+        logging.info("Nothing to train: every selected experiment has a checkpoint (use --retrain to train again).")
 
 
 if __name__ == "__main__":

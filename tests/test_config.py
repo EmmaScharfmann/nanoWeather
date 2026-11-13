@@ -77,3 +77,24 @@ def test_registry_rejects_unknown_references(tmp_path):
     )
     with pytest.raises(ValueError):
         load_experiments(registry)
+
+
+def test_missing_local_checkpoint_gives_a_clear_error(tmp_path):
+    from nanoweather.models.auto import load_model
+
+    with pytest.raises(FileNotFoundError, match="No checkpoint at"):
+        load_model("checkpoints/does_not_exist/best")
+    with pytest.raises(FileNotFoundError, match="No checkpoint at"):
+        load_model(str(tmp_path / "missing"))
+
+
+def test_fine_tuning_uses_the_dataset_of_its_starting_model():
+    experiments = load_experiments("experiments/experiments.yaml")
+    by_name = {experiment.name: experiment for experiment in experiments}
+    for experiment in experiments:
+        if experiment.init_from:
+            own = load_config(experiment.config)["data_config"]
+            parent = load_config(by_name[experiment.init_from].config)["data_config"]
+            assert own == parent, (
+                f"{experiment.name} fine-tunes on {own}, {experiment.init_from} was trained on {parent}"
+            )

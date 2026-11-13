@@ -232,7 +232,11 @@ def build_model(args: Namespace, data_config: dict, train_data: WeatherData, num
     if args.init_from:
         model = load_model(args.init_from)
         if model.config.variables != train_data.variables:
-            raise ValueError(f"The model in {args.init_from} was trained on other variables than this dataset.")
+            raise ValueError(
+                f"The model in {args.init_from} has {len(model.config.variables)} variables, the dataset in "
+                f"{args.data_path} has {len(train_data.variables)}. Set data_config to the dataset the model was "
+                "trained on."
+            )
         logger.info(f"Fine-tuning {args.init_from}; model and loss settings come from its config")
         return model.train()
 

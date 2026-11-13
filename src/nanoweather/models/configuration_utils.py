@@ -173,10 +173,21 @@ class NanoWeatherBaseConfig:
         return f"{self.__class__.__name__} {self.to_json_string()}"
 
 
+def looks_like_local_path(path: str | os.PathLike) -> bool:
+    """Hub repository ids are `name` or `namespace/name`; anything with more parts, or starting with `.` or `/`, is local."""
+    path = str(path)
+    return path.startswith((".", "/", "~")) or path.count("/") > 1 or os.sep != "/" and os.sep in path
+
+
 def load_config_dict(pretrained_model_name_or_path: str | os.PathLike, **kwargs) -> dict:
     """Reads `config.json` from a local directory or a Hub model repository."""
     if os.path.isdir(pretrained_model_name_or_path):
         config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
+    elif looks_like_local_path(pretrained_model_name_or_path):
+        raise FileNotFoundError(
+            f"No checkpoint at {pretrained_model_name_or_path} (from {os.getcwd()}). Was the model trained, and is "
+            "the path relative to the repo root?"
+        )
     else:
         from huggingface_hub import hf_hub_download
 

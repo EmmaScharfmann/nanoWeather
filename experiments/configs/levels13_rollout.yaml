@@ -1,0 +1,3 @@
+# Rollout fine-tuning on the 13-level dataset, which the model being fine-tuned was trained on.
+base: configs/train/rollout.yaml
+data_config: experiments/configs/data_13levels.yaml

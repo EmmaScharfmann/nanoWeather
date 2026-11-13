@@ -106,7 +106,7 @@ ablations:
     compare_to: vars29_latitude_weights
     description: 13 pressure levels and vertical velocity (82 variables) instead of 5 levels (29 variables)
   - name: levels13_rollout
-    config: configs/train/rollout.yaml
+    config: experiments/configs/levels13_rollout.yaml
     init_from: levels13
     compare_to: vars29_latitude_weights_rollout
     description: 13 pressure levels and vertical velocity, after rollout fine-tuning

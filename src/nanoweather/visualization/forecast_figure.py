@@ -29,9 +29,14 @@ def get_forecast_and_truth(data, checkpoint: str, init_time: str, num_steps: int
     return forecast, truth, forecaster.variables
 
 
+def load_static_field(store_path: str, name: str) -> np.ndarray:
+    """A static field (e.g. `land_sea_mask`, `orography`) in physical units, from the `static` group of a store."""
+    return xr.open_zarr(store_path, group="static")[name].values
+
+
 def load_land_sea_mask(store_path: str) -> np.ndarray:
     """Fraction of land in each grid cell, from the `static` group of a prepared store."""
-    return xr.open_zarr(store_path, group="static")["land_sea_mask"].values
+    return load_static_field(store_path, "land_sea_mask")
 
 
 class ForecastFigure:

@@ -257,6 +257,16 @@ Different test years (2017-2018), so only indicative.
 - Time features are re-tested because the tropics are the weakest region relative to natural variability, and the
   6h change of z500 there is dominated by the daily tide, which the model has to infer without a time input.
 
+## Where the error is (diagnose.py)
+
+- Maps of RMSE at each grid point, raw and divided by natural variability; share of the error from bias.
+- Concentration curve of the normalized squared error over the globe (worst points first) and its Gini coefficient
+  (0: spread in proportion to area; near 1: concentrated in a few points); share from the worst 10% of the area.
+- RMSE / natural variability by region from static fields: ocean, land below 1500 m, high terrain, coasts, tropics,
+  mid-latitudes, polar (checked on the real grid: ocean 71% of the area, land 25%, high terrain 4%).
+- RMSE of each forecast through the year, and the share of the total from the worst 10% of forecasts.
+- All numbers in heterogeneity.json, per variable and lead time.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

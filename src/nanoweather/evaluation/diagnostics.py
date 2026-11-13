@@ -54,6 +54,9 @@ def compute_diagnostics(
         `dict` with, for each lead time and variable:
             - `bias` `(num_leads, num_variables, latitude, longitude)`: mean of forecast minus truth.
             - `rmse_by_latitude` `(num_leads, num_variables, latitude)`: RMSE over longitudes and initializations.
+            - `rmse_map` `(num_leads, num_variables, latitude, longitude)`: RMSE at each grid point over initializations.
+              Its square is the squared bias plus the variance of the error (the systematic and random parts).
+            - `rmse_by_initialization` `(num_inits, num_leads, num_variables)`: area-weighted RMSE of each forecast.
             - `forecast_spectrum`, `truth_spectrum` `(num_leads, num_variables, num_wavenumbers)`: mean zonal power.
     """
     forecast_variables = get_forecast_variables(forecaster, data)
@@ -62,7 +65,7 @@ def compute_diagnostics(
     lead_index = np.array(lead_steps) - 1
     num_steps = max(lead_steps)
 
-    sums = {}
+    sums, rmse_by_initialization = {}, []
     for start in range(0, len(init_indices), batch_size):
         batch = init_indices[start : start + batch_size]
         forecast = forecaster(data, batch, num_steps)[:, lead_index][:, :, forecast_channels].astype(np.float64)
@@ -71,17 +74,22 @@ def compute_diagnostics(
         batch_sums = {
             "bias": error.sum(axis=0),
             "squared_error_by_latitude": (error**2).mean(axis=-1).sum(axis=0),
+            "squared_error_map": (error**2).sum(axis=0),
             "forecast_spectrum": zonal_power_spectrum(forecast, data.latitude_weights).sum(axis=0),
             "truth_spectrum": zonal_power_spectrum(truth, data.latitude_weights).sum(axis=0),
         }
         for key, value in batch_sums.items():
             sums[key] = sums.get(key, 0) + value
+        weighted = (error**2 * data.latitude_weights[:, None]).mean(axis=(-2, -1))
+        rmse_by_initialization.append(np.sqrt(weighted))
 
     num_inits = len(init_indices)
     return {
         "lead_hours": np.array(lead_steps) * data.time_step_hours,
         "bias": sums["bias"] / num_inits,
         "rmse_by_latitude": np.sqrt(sums["squared_error_by_latitude"] / num_inits),
+        "rmse_map": np.sqrt(sums["squared_error_map"] / num_inits),
+        "rmse_by_initialization": np.concatenate(rmse_by_initialization),
         "forecast_spectrum": sums["forecast_spectrum"] / num_inits,
         "truth_spectrum": sums["truth_spectrum"] / num_inits,
     }

@@ -267,6 +267,21 @@ Different test years (2017-2018), so only indicative.
 - RMSE of each forecast through the year, and the share of the total from the worst 10% of forecasts.
 - All numbers in heterogeneity.json, per variable and lead time.
 
+## Sea ice, SST and solar radiation in WeatherBench 2 at 5.625 deg (checked 2026-11-13)
+
+- sea_ice_cover and sea_surface_temperature: missing on all land and on 26% of ocean cells (132 cells beyond 60 deg),
+  most likely because conservative regridding marks any cell touching land as missing. Unusable as is: would need
+  our own regridding from 1.5 or 0.25 deg, averaging over the ocean part of each cell. Postponed to v1.
+- mean_top_downward_short_wave_radiation_flux: missing everywhere (checked 1990-2020). The computed sunlight features
+  (use_time_features) replace it.
+- snow_depth: complete.
+
+## Per-variable loss weights (in progress)
+
+- levels13_per_variable: each of the 10 physical variables gets 10% of the loss (upper-air variables spread over
+  levels by pressure; surface variables all weighted 1, no hand-set numbers), with time features. Before
+  (levels13): 13.7% for each upper-air variable and t2m, 1.4% for u10, v10, msl.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

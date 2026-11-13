@@ -1,0 +1,5 @@
+# Each of the 10 physical variables counts once in the loss: upper-air variables spread over their levels by
+# pressure (air mass), every surface variable weighted 1 (no hand-set surface weights). With time features.
+base: experiments/configs/levels13.yaml
+surface_loss_weights: {}
+use_time_features: true

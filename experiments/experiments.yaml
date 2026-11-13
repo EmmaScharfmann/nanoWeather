@@ -118,3 +118,7 @@ ablations:
     config: experiments/configs/levels13_uniform_time.yaml
     compare_to: levels13_uniform
     description: equal loss weights, plus sunlight and time of year as inputs
+  - name: levels13_per_variable
+    config: experiments/configs/levels13_per_variable.yaml
+    compare_to: levels13
+    description: each physical variable counts once in the loss (no hand-set surface weights), with time features

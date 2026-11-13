@@ -1,0 +1,3 @@
+# 13 levels with all variables weighted equally in the loss, after tendency normalization (no hand-set weights).
+base: experiments/configs/levels13.yaml
+loss_weighting: uniform

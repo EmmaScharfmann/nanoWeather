@@ -110,3 +110,11 @@ ablations:
     init_from: levels13
     compare_to: vars29_latitude_weights_rollout
     description: 13 pressure levels and vertical velocity, after rollout fine-tuning
+  - name: levels13_uniform
+    config: experiments/configs/levels13_uniform.yaml
+    compare_to: levels13
+    description: equal loss weights for all variables instead of pressure and surface weights
+  - name: levels13_uniform_time
+    config: experiments/configs/levels13_uniform_time.yaml
+    compare_to: levels13_uniform
+    description: equal loss weights, plus sunlight and time of year as inputs

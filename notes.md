@@ -244,6 +244,19 @@ Different test years (2017-2018), so only indicative.
   variables, 2000-2015: about 16 GB per copy, so about 19 GB in training instead of about 50.
 - Experiments: levels13 (latitude weights 0.5) vs vars29_latitude_weights, and their rollout fine-tunings.
 
+## Loss weights and time features (in progress)
+
+- Other models: the standard scheme (GraphCast, followed by NVIDIA's SwinV2 study and others) combines data-derived
+  weights (6h-change standard deviation, pressure level, latitude) with hand-set surface priorities (t2m 1.0, other
+  surface variables 0.1). NVIDIA kept the hand-set part only for consistency with GraphCast; a learned-uncertainty
+  loss did worse for them (lower skill, blurrier). Our round 3: equal weights after tendency normalization gave the
+  best z500 and t850 and about 7% worse t2m at day 5.
+- Experiments: levels13_uniform (equal weights, vs levels13) and levels13_uniform_time (plus sunlight and time of
+  year as inputs, vs levels13_uniform). Decision rule: if t2m stays within about 10% and the upper air is equal or
+  better, equal weights become the default and surface_loss_weights is removed; otherwise try mass-based weights.
+- Time features are re-tested because the tropics are the weakest region relative to natural variability, and the
+  6h change of z500 there is dominated by the daily tide, which the model has to infer without a time input.
+
 ## Next
 
 - [ ] Animation and snapshots (`visualize.py`) for a summer and a winter initialization.

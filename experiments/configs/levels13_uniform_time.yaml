@@ -1,0 +1,3 @@
+# Equal weights, plus time inputs: sunlight at each grid point (at t and t + 6h) and time of year.
+base: experiments/configs/levels13_uniform.yaml
+use_time_features: true
